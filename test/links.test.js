@@ -47,7 +47,7 @@ test('sign-in with a WhatsApp code is off: a lost app needs a new link', async (
   const r = await b.post('/api/auth/request-otp', { phone: '+254700000001' });
   assert.equal(r.status, 403);
   assert.equal(r.data.code, 'SIGN_IN_WITH_LINK');
-  assert.equal((await b.get('/api/public/book')).data.signInWithCode, false);
+  assert.equal((await b.get('/api/public/contact')).data.signInWithCode, false);
 });
 
 test('owner issues a new link for a new phone: it moves the book and the old phone loses access', async () => {

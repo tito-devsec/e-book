@@ -5,7 +5,7 @@
 ```
                  ┌──────────────── one Node.js service (Express 5) ────────────────┐
  admin.*     ───▶│ /admin SPA       + /api/admin/*   (admin session, RBAC, CSRF)    │
- books.*     ───▶│ download page + reader PWA, /api/public/book, /api/access/*,     │
+ books.*     ───▶│ contact page + reader PWA, /api/public/contact, /api/access/*,  │
                  │                    /api/auth/*  (OTP, activation), public covers │
                  │                  + /api/reader/*  (session + device signature)   │
                  └───────┬───────────────────────┬────────────────────┬────────────┘

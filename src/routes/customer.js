@@ -15,19 +15,18 @@ export function customerRoutes({ access, cfg, rateLimiter, readerAuth, pool, set
   const noStore = (req, res, next) => { res.set('Cache-Control', 'no-store'); next(); };
   r.use(noStore);
 
-  // ---- Public book information for the download home page -------------------
-  // Only published marketing metadata: never content, customers or tokens.
-  r.get('/public/book', async (req, res) => {
+  // ---- Public contact information for visitors without a link ---------------
+  // No book is shown publicly: only who to contact and the WhatsApp link.
+  r.get('/public/contact', async (req, res) => {
     const c = await settings.website();
+    const wa = c.whatsapp || {};
     const id = c.site?.featuredBookId;
     const { rows: [b] } = id
-      ? await pool.query('SELECT * FROM books WHERE id=$1 AND published', [id])
-      : await pool.query('SELECT * FROM books WHERE published ORDER BY created_at LIMIT 1');
-    if (!b) return res.json({ book: null, signInWithCode: (await settings.policy()).require_whatsapp_code === true });
-    const wa = c.whatsapp || {};
-    const msg = (wa.orderMessage || '').replaceAll('{book_title}', b.title);
+      ? await pool.query('SELECT title, author FROM books WHERE id=$1 AND published', [id])
+      : await pool.query('SELECT title, author FROM books WHERE published ORDER BY created_at LIMIT 1');
+    const msg = (wa.orderMessage || '').replaceAll('{book_title}', b?.title || 'your book');
     res.json({
-      book: { id: b.id, title: b.title, subtitle: b.subtitle, author: b.author, description: b.description, hasCover: Boolean(b.cover_storage_key) },
+      contactName: wa.contactName || b?.author || '',
       orderUrl: wa.number ? `https://wa.me/${wa.number.replace(/^\+/, '')}?text=${encodeURIComponent(msg)}` : null,
       signInWithCode: (await settings.policy()).require_whatsapp_code === true,
     });

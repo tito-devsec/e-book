@@ -301,7 +301,7 @@ test('overview metrics come from the database', async () => {
   assert.ok(Array.isArray(r.data.recentActivity));
 });
 
-test('download page settings: featured book and WhatsApp order link; no marketing website', async () => {
+test('visitors without a link see only a contact message; no book, no marketing website', async () => {
   assert.equal((await owner.request('PUT', '/api/admin/website/whatsapp', {
     number: '+254700111222', orderMessage: 'Hi, I want {book_title}', invitationTemplate: 'Hi {customer_name} {invitation_link}',
   })).status, 200);
@@ -310,15 +310,20 @@ test('download page settings: featured book and WhatsApp order link; no marketin
   assert.equal(bad.status, 400);
   assert.equal((await owner.request('PUT', '/api/admin/website/hero', { headline: 'x' })).status, 404, 'website sections are gone');
   assert.equal((await owner.post('/api/admin/testimonials', { authorName: 'A', quote: 'q' })).status, 404, 'testimonials are gone');
+  assert.equal((await owner.request('PUT', '/api/admin/website/whatsapp', {
+    contactName: 'Kenedy Njume', number: '+254700111222', orderMessage: 'Hi, I want {book_title}', invitationTemplate: 'Hi {customer_name} {invitation_link}',
+  })).status, 200);
   const anon = new Browser(env.base);
-  const info = await anon.get('/api/public/book');
-  assert.equal(info.data.book.id, bookId);
+  const info = await anon.get('/api/public/contact');
+  assert.equal(info.data.contactName, 'Kenedy Njume');
   assert.match(info.data.orderUrl, /^https:\/\/wa\.me\/254700111222\?text=Hi%2C%20I%20want%20Test%20Book$/);
-  assert.ok(!JSON.stringify(info.data).match(/storage_key|edition|phone_e164/));
+  assert.equal(info.data.book, undefined, 'no book is exposed to visitors without a link');
+  assert.ok(!JSON.stringify(info.data).match(/storage_key|edition|phone_e164|cover/));
+  assert.equal((await anon.get('/api/public/book')).status, 404);
   const home = await anon.get('/');
   assert.equal(home.status, 200);
-  assert.match(home.data.toString(), /static\/reader\/app\.js/, 'home is the download page app');
-  assert.doesNotMatch(home.data.toString(), /Order on WhatsApp|static\/site/);
+  assert.match(home.data.toString(), /static\/reader\/app\.js/, 'home is the customer app');
+  assert.doesNotMatch(home.data.toString(), /Order on WhatsApp|static\/site|DOWNLOAD BOOK/);
   assert.equal((await anon.get(`/media/covers/${bookId}`)).status, 200);
 });
 

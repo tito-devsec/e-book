@@ -381,7 +381,7 @@ async function viewInvitation(tokenInPath) {
 /** Screens for visitors without access: used, expired or invalid links, and the bare app. */
 async function viewNoAccess(kind) {
   let pub = {};
-  try { pub = await api('GET', '/api/public/book'); } catch { /* offline */ }
+  try { pub = await api('GET', '/api/public/contact'); } catch { /* offline */ }
   const texts = {
     used: ['This link has already been opened', 'Each private link opens only once. If you already added the book, open “My Books” on your home screen. For a new phone, ask the book owner for a new link.'],
     expired: ['This link has expired', 'Private links are valid for a limited time. Ask the book owner for a new link.'],
@@ -394,14 +394,14 @@ async function viewNoAccess(kind) {
     h('h1', { text: title }), h('p', { class: 'muted', text }),
     h('div', { class: 'stack' },
       pub.signInWithCode ? h('a', { class: 'btn btn-primary btn-block', href: '/login', 'data-nav': true }, 'Sign in with WhatsApp code') : null,
-      pub.orderUrl ? h('a', { class: 'btn btn-block', href: pub.orderUrl, target: '_blank', rel: 'noopener noreferrer' }, fi('shopping-bag'), ' Buy this book on WhatsApp') : null))));
+      pub.orderUrl ? h('a', { class: 'btn btn-block', href: pub.orderUrl, target: '_blank', rel: 'noopener noreferrer' }, h('i', { class: 'fi fi-brands-whatsapp', 'aria-hidden': 'true' }), ` Contact ${pub.contactName || 'the book owner'} on WhatsApp`) : null))));
 }
 
 // ===========================================================================
 // Sign in again  (/login)
 // ===========================================================================
 async function viewLogin(reason) {
-  try { if (!(await api('GET', '/api/public/book')).signInWithCode) return viewNoAccess('app'); } catch { /* fall through */ }
+  try { if (!(await api('GET', '/api/public/contact')).signInWithCode) return viewNoAccess('app'); } catch { /* fall through */ }
   const err = errorLine();
   const phone = h('input', { type: 'tel', autocomplete: 'tel', inputmode: 'tel', placeholder: '+254 7XX XXX XXX', id: 'phone', required: true });
   const btn = h('button', { class: 'btn btn-primary btn-block', type: 'submit' }, 'Send my code');
@@ -605,28 +605,24 @@ async function viewHome() {
   try { s = await loadSession(); } catch (err) { return viewOffline(err); }
   if (s.authenticated && s.books.length >= 1) return viewBook(s.books[0].id, { session: s });
 
-  // Visitor without access: show the book and how to get it.
-  let info;
-  try { info = await api('GET', '/api/public/book'); } catch (err) { return viewOffline(err); }
-  if (!info.book) return mount(screen(h('h1', { text: 'Coming soon' }), h('p', { class: 'muted', text: 'The book will be available here shortly.' })));
-  const coverImg = h('img', { alt: `${info.book.title} cover` });
-  if (info.book.hasCover) coverImg.src = `/media/covers/${info.book.id}`;
-  const needAccess = () => {
-    const close = () => m.remove();
-    const m = h('div', { class: 'modal', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'access-title' },
-      h('div', { class: 'panel' },
-        info.book.hasCover ? h('img', { src: `/media/covers/${info.book.id}`, alt: '' }) : null,
-        h('h1', { id: 'access-title', text: 'Private book' }),
-        h('p', { class: 'muted', text: 'This book is available only to its buyers. After payment you receive a private link on WhatsApp that adds the book to your device.' }),
-        h('div', { class: 'stack' },
-          info.orderUrl ? h('a', { class: 'btn btn-primary btn-block', href: info.orderUrl, target: '_blank', rel: 'noopener noreferrer' }, fi('shopping-bag'), ' Buy this book on WhatsApp') : null,
-          info.signInWithCode ? h('a', { class: 'btn btn-block', href: '/login', 'data-nav': true, onclick: close }, 'I bought it: sign in') : null,
-          h('button', { class: 'btn-link', onclick: close }, 'Not now'))));
-    m.addEventListener('click', (e) => { if (e.target === m) close(); });
-    document.body.append(m);
-    m.querySelector('a, button')?.focus();
-  };
-  mount(downloadPage({ book: info.book, coverImg, onDownload: needAccess, onStart: needAccess }));
+  // Visitor without a private link: no book is shown, only who to contact.
+  return viewContact();
+}
+
+/** Public home: the download page is reachable only through a private link. */
+async function viewContact() {
+  let pub = {};
+  try { pub = await api('GET', '/api/public/contact'); } catch (err) { return viewOffline(err); }
+  const who = pub.contactName || 'the book owner';
+  mount(h('main', { class: 'screen' }, h('div', { class: 'panel contact' },
+    h('div', { class: 'lock' }, fi('book-alt')),
+    h('h1', { text: 'Get your book' }),
+    h('p', {}, 'To get a book, contact ', h('strong', { text: who }), ' on WhatsApp.'),
+    h('p', { class: 'muted', text: 'After payment you receive a private link that adds the book to your device.' }),
+    h('div', { class: 'stack' },
+      pub.orderUrl ? h('a', { class: 'btn btn-primary btn-block', href: pub.orderUrl, target: '_blank', rel: 'noopener noreferrer' }, h('i', { class: 'fi fi-brands-whatsapp', 'aria-hidden': 'true' }), ' Chat on WhatsApp') : null,
+      pub.signInWithCode ? h('a', { class: 'btn btn-block', href: '/login', 'data-nav': true }, 'I bought a book: sign in') : null,
+      h('p', { class: 'hint', text: 'Already have your book? Open “My Books” on your device.' })))));
 }
 
 // ===========================================================================
@@ -645,7 +641,7 @@ function viewInstallGuide() {
 // ===========================================================================
 async function viewDenied(reason) {
   let pub = {};
-  try { pub = await api('GET', '/api/public/book'); } catch { /* offline */ }
+  try { pub = await api('GET', '/api/public/contact'); } catch { /* offline */ }
   const extra = {
     device: 'Your book was moved to the “My Books” app or to another device.',
     suspended: 'Access to this account is currently paused.',

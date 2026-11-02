@@ -63,7 +63,7 @@ try {
   await pool.query(`UPDATE website_settings SET value=$1 WHERE key='site'`, [{ featuredBookId: book.id }]);
   const { rows: [wa] } = await pool.query(`SELECT value FROM website_settings WHERE key='whatsapp'`);
   await pool.query(`UPDATE website_settings SET value=$1 WHERE key='whatsapp'`,
-    [{ ...wa.value, number: wa.value.number || process.env.SEED_WHATSAPP || '+254700000000', orderMessage: 'Hello, I would like to order {book_title}.' }]);
+    [{ ...wa.value, contactName: wa.value.contactName || 'Kenedy Njume', number: wa.value.number || process.env.SEED_WHATSAPP || '+254700000000', orderMessage: 'Hello, I would like to order {book_title}.' }]);
 
   // --book <file>: use your own EPUB or PDF as the sample book's current edition.
   const bi = process.argv.indexOf('--book');

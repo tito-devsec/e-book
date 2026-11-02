@@ -33,9 +33,10 @@ their access and see the new edition. You can switch back to an older edition un
 
 **Download Page & WhatsApp** in the dashboard:
 
-- *Book shown on the download page*: the book visitors see at the customer site's home page.
-- *Business WhatsApp number* and *Prefilled order message*: used by the "Buy this book on
-  WhatsApp" button that visitors without access see.
+- *Contact name shown to visitors*: anyone who opens the customer site without a private link
+  sees no book, only "To get a book, contact [name] on WhatsApp" and a **Chat on WhatsApp** button.
+- *Business WhatsApp number* and *Prefilled order message*: used by that button.
+- The download page is only ever shown through a private link, once.
 - *Invitation message*: the text you send with each private link. It must contain
   `{invitation_link}`.
 

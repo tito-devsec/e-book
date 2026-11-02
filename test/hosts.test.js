@@ -37,7 +37,7 @@ test('customer site is only on the reader host; its home is the download page', 
   assert.equal((await get('reader.example.test', '/read/00000000-0000-4000-8000-000000000000')).status, 200);
   assert.equal((await get('admin.example.test', '/access/abc')).status, 404);
   assert.equal((await get('admin.example.test', '/manifest.webmanifest')).status, 404);
-  assert.equal((await get('admin.example.test', '/api/public/book')).status, 404);
+  assert.equal((await get('admin.example.test', '/api/public/contact')).status, 404);
   const root = await get('reader.example.test', '/');
   assert.equal(root.status, 200);
   assert.match(root.body, /static\/reader\/app\.js/);
@@ -61,7 +61,7 @@ test('localhost: the customer site and dashboard are selected by port', async ()
     assert.equal(await at(rp, '/api/admin/overview'), 404);
     assert.equal(await at(ap, '/admin'), 200);
     assert.equal(await at(ap, '/access/abc'), 404);
-    assert.equal(await at(ap, '/api/public/book'), 404);
+    assert.equal(await at(ap, '/api/public/contact'), 404);
   } finally {
     servers.forEach((sv) => sv.close());
   }

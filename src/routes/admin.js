@@ -807,7 +807,7 @@ export function adminRoutes(ctx) {
       if (v.number && !number) throw badRequest('Enter the WhatsApp number in international format, e.g. +254712345678');
       const invitationTemplate = str(v.invitationTemplate, 2000);
       if (!invitationTemplate.includes('{invitation_link}')) throw badRequest('The invitation message must contain {invitation_link}');
-      value = { number, orderMessage: str(v.orderMessage, 1000), invitationTemplate };
+      value = { contactName: str(v.contactName, 120).trim(), number, orderMessage: str(v.orderMessage, 1000), invitationTemplate };
     }
     await tx(pool, async (db) => {
       await db.query(`INSERT INTO website_settings (key, value, updated_by) VALUES ($1,$2,$3)

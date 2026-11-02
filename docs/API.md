@@ -24,7 +24,7 @@ session exists, `X-CSRF-Token`. Cross-origin requests are rejected.
 
 | Method & path | Result |
 |---|---|
-| `GET /public/book` | The book shown on the download page (published metadata only) and the WhatsApp order link |
+| `GET /public/contact` | Contact name, WhatsApp chat link and sign-in mode for visitors without a private link (no book information) |
 
 ## Customer access (reader host)
 

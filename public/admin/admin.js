@@ -1030,12 +1030,13 @@ async function viewWhatsapp() {
   const [{ content }, { books }] = await Promise.all([api('GET', '/api/admin/website'), api('GET', '/api/admin/books')]);
   const published = books.filter((b) => b.published);
   const featured = buildForm([
-    { name: 'featuredBookId', label: 'Book shown on the download page', type: 'select', nullable: true,
+    { name: 'featuredBookId', label: 'Book named in the WhatsApp order message', type: 'select', nullable: true,
       options: [['', 'First published book'], ...published.map((b) => [b.id, b.title])],
-      hint: 'Visitors to the customer site see this book with DOWNLOAD BOOK and START READING. Only published books can be chosen.' },
+      hint: 'Used for {book_title} in the order message. The download page itself is only ever shown through a private link.' },
   ], content.site || {}, { submit: 'Save', columns: false, onSubmit: (v) => act(() => api('PUT', '/api/admin/website/site', v), { ok: 'Saved', reload: false }) });
   const f = buildForm([
-    { name: 'number', label: 'Business WhatsApp number', placeholder: '+254712345678', hint: 'Visitors who have not bought yet get a "Buy this book on WhatsApp" button that opens a chat with this number' },
+    { name: 'contactName', label: 'Contact name shown to visitors', placeholder: 'e.g. Kenedy Njume', hint: 'Visitors without a private link see: “To get a book, contact [name] on WhatsApp”' },
+    { name: 'number', label: 'Business WhatsApp number', placeholder: '+254712345678', hint: 'The “Chat on WhatsApp” button opens a chat with this number' },
     { name: 'orderMessage', label: 'Prefilled order message', type: 'textarea', full: true, hint: 'Placeholders: {book_title}' },
     { name: 'invitationTemplate', label: 'Invitation message sent to customers', type: 'textarea', full: true, rows: 10, required: true,
       hint: 'Placeholders: {customer_name}, {book_title}, {invitation_link} (required), {expiry_hours}' },
