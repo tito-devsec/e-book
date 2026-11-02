@@ -12,7 +12,7 @@ This is the book owner's guide to the management dashboard (`https://admin.examp
 
 ## Setting up your book
 
-1. **Books** → fill in title, author, price, currency and description → *Create book*.
+1. **Books** → fill in title, author, price (in Tanzanian shillings, currency `TZS`) and description → *Create book*.
 2. On the book page:
    - **Cover**: upload a PNG, JPEG or WebP image.
    - **Upload a new edition**: choose the EPUB (recommended) or PDF. The file is checked,

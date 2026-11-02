@@ -35,7 +35,7 @@ test('customer reading session cannot use admin routes', async () => {
 test('RBAC: support role is read-only', async () => {
   const support = await loginAdmin(env, { email: 'support@example.com', role: 'SUPPORT' });
   assert.equal((await support.get('/api/admin/customers')).status, 200);
-  const r = await support.post('/api/admin/books', { title: 'Nope', author: 'x', priceAmount: '1', currency: 'KES' });
+  const r = await support.post('/api/admin/books', { title: 'Nope', author: 'x', priceAmount: '1', currency: 'TZS' });
   assert.equal(r.status, 403);
   assert.equal(r.data.code, 'PERMISSION_DENIED');
   assert.equal((await support.get('/api/admin/audit-logs')).status, 403);
@@ -44,7 +44,7 @@ test('RBAC: support role is read-only', async () => {
 test('CSRF token is required for admin state changes', async () => {
   const csrf = owner.csrf;
   owner.csrf = null;
-  const r = await owner.post('/api/admin/books', { title: 'x', author: 'y', priceAmount: '1', currency: 'KES' });
+  const r = await owner.post('/api/admin/books', { title: 'x', author: 'y', priceAmount: '1', currency: 'TZS' });
   owner.csrf = csrf;
   assert.equal(r.status, 403);
   assert.equal(r.data.code, 'CSRF');
@@ -160,7 +160,7 @@ test('original source file is encrypted at rest and never reachable by URL', asy
 });
 
 test('PDF editions: rendered server-side, never sent as PDF, watermarked per buyer, searchable', async () => {
-  const created = await owner.post('/api/admin/books', { title: 'PDF Book', author: 'A', priceAmount: '10', currency: 'KES', preferredFormat: 'PDF' });
+  const created = await owner.post('/api/admin/books', { title: 'PDF Book', author: 'A', priceAmount: '10', currency: 'TZS', preferredFormat: 'PDF' });
   const id = created.data.book.id;
   const fd = new FormData(); fd.append('file', new Blob([makePdf(3)]), 'b.pdf');
   const up = await owner.post(`/api/admin/books/${id}/upload`, fd);
@@ -207,7 +207,7 @@ test('PDF editions: rendered server-side, never sent as PDF, watermarked per buy
 });
 
 test('password-protected or broken PDFs are rejected', async () => {
-  const created = await owner.post('/api/admin/books', { title: 'Broken', author: 'A', priceAmount: '10', currency: 'KES' });
+  const created = await owner.post('/api/admin/books', { title: 'Broken', author: 'A', priceAmount: '10', currency: 'TZS' });
   const fd = new FormData(); fd.append('file', new Blob([Buffer.from('%PDF-1.4\nnot really a pdf')]), 'x.pdf');
   const up = await owner.post(`/api/admin/books/${created.data.book.id}/upload`, fd);
   assert.equal(up.status, 400);

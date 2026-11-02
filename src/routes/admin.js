@@ -56,7 +56,7 @@ export function adminRoutes(ctx) {
       `SELECT currency, sum(amount) FILTER (WHERE status='VERIFIED')::text AS verified, sum(amount) FILTER (WHERE status='PENDING')::text AS pending,
               count(*) FILTER (WHERE status='PENDING')::int AS pending_count
          FROM payments GROUP BY currency ORDER BY sum(amount) FILTER (WHERE status='VERIFIED') DESC NULLS LAST`);
-    const currency = revenue[0]?.currency || 'KES';
+    const currency = revenue[0]?.currency || 'TZS';
     const { rows: weekly } = await pool.query(
       `SELECT to_char(d, 'YYYY-MM-DD') AS day,
               (SELECT count(*) FROM orders o WHERE o.created_at >= d AND o.created_at < d + interval '1 day')::int AS orders,

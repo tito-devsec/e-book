@@ -52,7 +52,7 @@ try {
     ({ rows: [book] } = await pool.query(
       `INSERT INTO books (slug, title, subtitle, author, description, price_amount, currency, published, max_devices)
        VALUES ('20-objections-that-cost-you-sales','20 Objections That Cost You Sales','How to Handle Customer Objections and Close More Deals',
-               'Kenedy Njume', $1, 1500, 'KES', false, 1) RETURNING *`,
+               'Kenedy Njume', $1, 15000, 'TZS', false, 1) RETURNING *`,
       ['Every lost sale starts with an objection that was not handled well. This practical guide walks through the twenty objections salespeople hear most and gives you clear, tested ways to respond.']));
     const cover = await fs.readFile(path.join(here, '..', 'public', 'assets', 'cover.png'));
     const key = `covers/${book.id}/seed`;
@@ -95,12 +95,12 @@ try {
       const { rows: [c] } = await pool.query(
         `INSERT INTO customers (full_name, phone_e164, status, notes, created_at) VALUES ($1,$2,$3,'Demo data',$4) RETURNING id`, [names[i], phone, status, at]);
       const { rows: [o] } = await pool.query(
-        `INSERT INTO orders (customer_id, reference, status, total_amount, currency, created_at) VALUES ($1,$2,$3,$4,'KES',$5) RETURNING id`,
+        `INSERT INTO orders (customer_id, reference, status, total_amount, currency, created_at) VALUES ($1,$2,$3,$4,'TZS',$5) RETURNING id`,
         [c.id, `DEMO-${1000 + i}`, state === 'PENDING' ? 'PENDING_PAYMENT' : 'PAID', book.price_amount, at]);
       await pool.query('INSERT INTO order_items (order_id, book_id, unit_price) VALUES ($1,$2,$3)', [o.id, book.id, book.price_amount]);
       await pool.query(
-        `INSERT INTO payments (order_id, amount, currency, method, reference, status, verified_at, created_at) VALUES ($1,$2,'KES',$3,$4,$5,$6,$7)`,
-        [o.id, book.price_amount, i % 3 ? 'M-PESA' : 'Bank transfer', `DEMO${100000 + i}`, state, state === 'VERIFIED' ? new Date(at.getTime() + 3600000) : null, at]);
+        `INSERT INTO payments (order_id, amount, currency, method, reference, status, verified_at, created_at) VALUES ($1,$2,'TZS',$3,$4,$5,$6,$7)`,
+        [o.id, book.price_amount, ['M-Pesa', 'Tigo Pesa', 'Airtel Money', 'Bank transfer'][i % 4], `DEMO${100000 + i}`, state, state === 'VERIFIED' ? new Date(at.getTime() + 3600000) : null, at]);
       if (state === 'VERIFIED') {
         await pool.query(
           `INSERT INTO reading_licenses (customer_id, book_id, order_id, status, activated_at, created_at) VALUES ($1,$2,$3,$4,$5,$6)`,

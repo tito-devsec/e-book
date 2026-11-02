@@ -54,7 +54,13 @@ async function act(fn, { ok, reload = true } = {}) {
 }
 
 const fmtDate = (d) => (d ? new Date(d).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : '—');
-const fmtMoney = (a, c) => { try { return new Intl.NumberFormat(undefined, { style: 'currency', currency: c }).format(Number(a)); } catch { return `${c} ${a}`; } };
+// Tanzanian shillings are shown the local way ("TSh 15,000"), without decimals for whole amounts.
+const fmtMoney = (a, c) => {
+  const n = Number(a);
+  try {
+    return new Intl.NumberFormat(c === 'TZS' ? 'en-TZ' : undefined, { style: 'currency', currency: c, minimumFractionDigits: 0, maximumFractionDigits: n % 1 ? 2 : 0 }).format(n);
+  } catch { return `${c} ${a}`; }
+};
 const STATUS_TONE = {
   ACTIVE: 'ok', PAID: 'ok', VERIFIED: 'ok', READY: 'ok', CONSUMED: 'ok', ACTIVATED: 'ok', ADMIN_APPROVED: 'ok', SELF_SERVICE: 'ok',
   PENDING: 'warn', PENDING_PAYMENT: 'warn', PENDING_ACTIVATION: 'warn', INVITED: 'info', PROCESSING: 'warn', PENDING_APPROVAL: 'warn', MEDIUM: 'warn',
@@ -596,12 +602,12 @@ async function viewOverview() {
 // ===========================================================================
 // Books and editions
 // ===========================================================================
-const bookFields = (currency = 'KES') => [
+const bookFields = (currency = 'TZS') => [
   { name: 'title', label: 'Title', required: true, max: 300 },
   { name: 'subtitle', label: 'Subtitle', max: 300 },
   { name: 'author', label: 'Author', required: true, max: 200 },
-  { name: 'priceAmount', label: 'Price', required: true, placeholder: '1500', hint: 'Numbers only, e.g. 1500 or 1500.00' },
-  { name: 'currency', label: 'Currency', required: true, default: currency, max: 3, hint: 'ISO code, e.g. KES, USD' },
+  { name: 'priceAmount', label: 'Price', required: true, placeholder: '15000', hint: 'Numbers only, e.g. 15000' },
+  { name: 'currency', label: 'Currency', required: true, default: currency, max: 3, hint: 'ISO code: TZS for Tanzanian shillings' },
   { name: 'availability', label: 'Availability', type: 'select', options: [['AVAILABLE', 'Available'], ['COMING_SOON', 'Coming soon'], ['UNAVAILABLE', 'Unavailable']] },
   { name: 'preferredFormat', label: 'Preferred reading format', type: 'select', options: [['EPUB', 'EPUB (reflowable text)'], ['PDF', 'PDF (page images)']] },
   { name: 'maxDevices', label: 'Devices per purchase', type: 'number', min: 1, maxv: 10, default: 1, hint: 'Applies to new licenses' },
@@ -803,8 +809,8 @@ async function viewNewOrder() {
     { name: 'bookIds', label: 'Book(s)', type: 'multiselect', required: true, options: books.map((b) => [b.id, `${b.title} — ${fmtMoney(b.price_amount, b.currency)}`]), default: books.length === 1 ? [books[0].id] : [] },
     { name: 'reference', label: 'Order reference', placeholder: 'Leave empty to generate' },
     { name: 'amount', label: 'Payment amount', required: true, default: books[0]?.price_amount || '' },
-    { name: 'currency', label: 'Currency', default: books[0]?.currency || 'KES' },
-    { name: 'paymentMethod', label: 'Payment method', required: true, placeholder: 'e.g. M-PESA, bank transfer' },
+    { name: 'currency', label: 'Currency', default: books[0]?.currency || 'TZS' },
+    { name: 'paymentMethod', label: 'Payment method', required: true, placeholder: 'e.g. M-Pesa, Tigo Pesa, Airtel Money, bank' },
     { name: 'paymentReference', label: 'Payment reference', placeholder: 'e.g. M-PESA code' },
     can('payments.verify') ? { name: 'paymentStatus', label: 'Payment verification status', type: 'select', options: [['PENDING', 'Pending — verify later'], ['VERIFIED', 'Verified — I have confirmed this payment']] } : null,
     { name: 'notes', label: 'Internal notes', type: 'textarea', full: true },

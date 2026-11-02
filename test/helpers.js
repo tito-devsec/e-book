@@ -161,7 +161,7 @@ export const PNG_1PX = Buffer.from('89504e470d0a1a0a0000000d49484452000000010000
 
 /** Create a published book with a ready EPUB edition. */
 export async function createBook(admin, { title = 'Test Book', epub, maxDevices } = {}) {
-  const r = await admin.post('/api/admin/books', { title, author: 'Kenedy Njume', priceAmount: '1500', currency: 'KES', description: 'A book.', ...(maxDevices ? { maxDevices } : {}) });
+  const r = await admin.post('/api/admin/books', { title, author: 'Kenedy Njume', priceAmount: '1500', currency: 'TZS', description: 'A book.', ...(maxDevices ? { maxDevices } : {}) });
   if (r.status !== 201) throw new Error(JSON.stringify(r.data));
   const id = r.data.book.id;
   const fd = new FormData();
@@ -181,7 +181,7 @@ export async function createOrder(admin, bookId, { verify = true, phone } = {}) 
   phoneSeq += 1;
   const p = phone || `+2547${String(phoneSeq).padStart(8, '0')}`;
   const r = await admin.post('/api/admin/orders', {
-    fullName: 'Jane Reader', phone: p, bookIds: [bookId], amount: '1500', currency: 'KES',
+    fullName: 'Jane Reader', phone: p, bookIds: [bookId], amount: '1500', currency: 'TZS',
     paymentMethod: 'M-PESA', paymentReference: `REF${phoneSeq}`,
   });
   if (r.status !== 201) throw new Error(JSON.stringify(r.data));
