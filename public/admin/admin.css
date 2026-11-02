@@ -211,6 +211,6 @@ pre.details { margin: 0; white-space: pre-wrap; font-size: .78rem; color: var(--
 .fi { display: inline-flex; align-items: center; justify-content: center; line-height: 1; }
 .fi::before { line-height: 1; }
 .side nav a .fi { width: 20px; }
-.credit { font-size: .72rem; color: #b2b8c5; padding: 18px 14px 6px; margin: 0; }
+.credit { font-size: .72rem; color: #b2b8c5; padding: 18px 28px 20px; margin: 0; text-align: right; }
 .credit a { color: inherit; }
 .cover-preview { display: block; max-width: 180px; height: auto; border-radius: 8px; margin-bottom: 1rem; box-shadow: 0 2px 10px rgba(0, 0, 0, .15); }

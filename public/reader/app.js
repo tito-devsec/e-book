@@ -1128,8 +1128,8 @@ class Reader {
   // --- Mount -------------------------------------------------------------------
   async start() {
     const wm = h('div', { class: 'watermark', 'aria-hidden': 'true' });
-    // PDF pages already carry the buyer's watermark in their pixels; EPUB text gets an overlay.
-    if (!this.isPdf) for (let i = 0; i < 24; i += 1) wm.append(h('span', { text: this.manifest.watermark }));
+    // PDF pages already carry the author's watermark in their pixels; EPUB text gets an overlay.
+    if (!this.isPdf && this.manifest.watermark) for (let i = 0; i < 24; i += 1) wm.append(h('span', { text: this.manifest.watermark }));
     this.bookEl = h('div', { class: 'book' });
     this.measure = h('div', { class: 'measure', 'aria-hidden': 'true' });
     const stage = h('div', { class: 'stage' }, this.bookEl, wm, this.measure,

@@ -9,6 +9,12 @@ export function readerRoutes({ pool, access, ingest, events, readerAuth, storage
   r.use((req, res, next) => { res.set('Cache-Control', 'no-store, private'); res.set('Pragma', 'no-cache'); next(); });
   r.use(readerAuth.sessionOnly(), readerAuth.signed());
 
+  // Text of the tiled watermark: the author's name and number only, never the buyer's details.
+  async function ownerMark() {
+    const wa = (await settings.website()).whatsapp || {};
+    return [wa.contactName, wa.number ? formatPhone(wa.number) : ''].filter(Boolean).join(' · ');
+  }
+
   async function currentEdition(bookId) {
     const { rows: [e] } = await pool.query(
       `SELECT e.* FROM books b JOIN book_editions e ON e.id=b.current_edition_id WHERE b.id=$1 AND e.status='READY'`, [bookId]);
@@ -81,7 +87,7 @@ export function readerRoutes({ pool, access, ingest, events, readerAuth, storage
       edition: e.version,
       toc: e.toc,
       items: rows.map((a) => ({ id: a.id, index: a.ordinal, title: a.title })),
-      watermark: `${req.reader.full_name} · ${req.reader.phone_e164.slice(0, 4)}•••${req.reader.phone_e164.slice(-3)}`,
+      watermark: await ownerMark(),
     });
   });
 

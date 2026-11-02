@@ -221,7 +221,7 @@ function shell() {
       h('a', { class: 'logo', href: '/admin', 'data-nav': true }, h('span', { class: 'mark' }, icon('book', 18)), 'BookVault'),
       btn('Menu', () => side.classList.toggle('open'), 'menu-btn')),
     h('nav', { 'aria-label': 'Dashboard' }, NAV.filter(([, , p]) => !p || can(p)).map(([href, label, , ic]) => h('a', { href, 'data-nav': true }, icon(ic), h('span', { text: label }))),
-      h('p', { class: 'credit' }, 'Icons: ', h('a', { href: 'https://www.flaticon.com/uicons', target: '_blank', rel: 'noopener noreferrer' }, 'UIcons by Flaticon'))));
+      ));
   titleEl = h('h1');
   const q = h('input', { type: 'search', placeholder: 'Search customers by name or phone', 'aria-label': 'Search customers' });
   const search = h('form', { class: 'search', role: 'search' }, icon('search', 18), q);
@@ -236,7 +236,8 @@ function shell() {
       h('button', { type: 'button', role: 'menuitem', onclick: logout }, 'Sign out')));
   });
   contentEl = h('div', { class: 'content', id: 'content' });
-  mainEl = h('main', { class: 'main', id: 'main' }, h('header', { class: 'topbar' }, titleEl, search, avatar), contentEl);
+  const credit = h('p', { class: 'credit' }, 'Icons: ', h('a', { href: 'https://www.flaticon.com/uicons', target: '_blank', rel: 'noopener noreferrer' }, 'UIcons by Flaticon'));
+  mainEl = h('main', { class: 'main', id: 'main' }, h('header', { class: 'topbar' }, titleEl, search, avatar), contentEl, credit);
   root.replaceChildren(h('div', { class: 'shell' }, side, mainEl));
 }
 

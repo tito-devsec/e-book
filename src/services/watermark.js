@@ -1,9 +1,9 @@
 // Per-buyer watermark burned into every PDF page image at delivery time.
 //
 // The page stored on the server is clean; each request produces an image that carries the
-// buyer's name, a masked phone number and a trace code derived from their license. A leaked
-// screenshot or photo of a page therefore identifies whose copy it came from. The watermark is
-// part of the pixels, so it cannot be removed by editing the web page or blocking a CSS overlay.
+// author's name and number across the page, and a footer line with the buyer's name, a masked
+// phone number and a trace code derived from their license, so a leaked page can be traced.
+// Both are part of the pixels, so they cannot be removed by editing the web page or a CSS overlay.
 import { createCanvas, loadImage } from '@napi-rs/canvas';
 import { keyedHash } from '../lib/crypto.js';
 
@@ -27,7 +27,7 @@ export function formatPhone(e164) {
 /**
  * @param {Buffer} png  clean page image
  * @param {{name: string, phone: string, code: string, date?: Date, owner?: {name: string, phone: string}, dark?: boolean}} who
- *   `owner` is the book owner's name and number, shown on every other row of the pattern;
+ *   `owner` is the author's name and number, the only text in the tiled pattern;
  *   `dark` is for the front cover (light marks on a dark page).
  * @returns {Promise<Buffer>} watermarked WebP
  */
@@ -38,34 +38,32 @@ export async function watermarkPage(png, who) {
   const ctx = canvas.getContext('2d');
   ctx.drawImage(img, 0, 0, w, h);
 
-  const buyerLabel = `${who.name} · ${who.phone} · ${who.code}`;
+  // The tiled watermark is the author's name and number only. The buyer's details are never part
+  // of the pattern: they appear only in the footer line below.
   const ownerLabel = who.owner?.name ? [who.owner.name, who.owner.phone].filter(Boolean).join(' · ') : '';
   const dark = Boolean(who.dark);
 
   // 1. Diagonal tiled pattern across the whole page (faint, so the page stays readable).
-  //    Rows alternate: the owner's name and number, then this buyer's trace line.
-  const size = Math.max(14, Math.round(w / 36));
-  ctx.save();
-  ctx.translate(w / 2, h / 2);
-  ctx.rotate(-Math.PI / 6);
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  const diag = Math.hypot(w, h);
-  const stepY = size * 3.4;
-  let row = 0;
-  for (let y = -diag / 2; y < diag / 2; y += stepY) {
-    const isOwner = ownerLabel && row % 2 === 0;
-    const label = isOwner ? ownerLabel : buyerLabel;
-    ctx.font = `${isOwner ? 700 : 600} ${size}px ${FONT}`;
-    ctx.fillStyle = dark
-      ? `rgba(255, 255, 255, ${isOwner ? 0.14 : 0.09})`
-      : `rgba(20, 24, 40, ${isOwner ? 0.12 : 0.075})`;
-    const textW = ctx.measureText(label).width + size * 3;
-    const offset = (Math.floor(row / 2) % 2) * (textW / 2);
-    for (let x = -diag / 2 - offset; x < diag / 2 + textW; x += textW) ctx.fillText(label, x, y);
-    row += 1;
+  if (ownerLabel) {
+    const size = Math.max(14, Math.round(w / 36));
+    ctx.save();
+    ctx.translate(w / 2, h / 2);
+    ctx.rotate(-Math.PI / 6);
+    ctx.font = `700 ${size}px ${FONT}`;
+    ctx.fillStyle = dark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(20, 24, 40, 0.10)';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const diag = Math.hypot(w, h);
+    const stepY = size * 4.6;
+    const textW = ctx.measureText(ownerLabel).width + size * 3;
+    let row = 0;
+    for (let y = -diag / 2; y < diag / 2; y += stepY) {
+      const offset = (row % 2) * (textW / 2);
+      for (let x = -diag / 2 - offset; x < diag / 2 + textW; x += textW) ctx.fillText(ownerLabel, x, y);
+      row += 1;
+    }
+    ctx.restore();
   }
-  ctx.restore();
 
   // 2. Footer line on every page.
   const fs = Math.max(11, Math.round(w / 78));
