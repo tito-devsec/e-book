@@ -41,6 +41,7 @@ if (fs.existsSync(envPath) && !('force' in args)) {
   // only set the port layout.
   let text = fs.readFileSync(envPath, 'utf8');
   for (const k of removed) text = text.replace(new RegExp(`^${k}=.*\\n?`, 'm'), '');
+  text = text.replace(/^DEFAULT_COUNTRY_CODE=254$/m, 'DEFAULT_COUNTRY_CODE=255'); // Tanzania
   for (const [k, v] of Object.entries(portSettings)) {
     const re = new RegExp(`^${k}=.*$`, 'm');
     text = re.test(text) ? text.replace(re, `${k}=${v}`) : `${text.replace(/\n*$/, '\n')}${k}=${v}\n`;
@@ -59,7 +60,7 @@ if (fs.existsSync(envPath) && !('force' in args)) {
     'STORAGE_DRIVER=local',
     'STORAGE_LOCAL_DIR=./var/storage',
     'COOKIE_SECURE=false',
-    'DEFAULT_COUNTRY_CODE=254',
+    'DEFAULT_COUNTRY_CODE=255',
     'LOG_LEVEL=warn',
     '',
   ].join('\n');

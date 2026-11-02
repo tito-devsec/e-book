@@ -804,7 +804,7 @@ async function viewNewOrder() {
   const { books } = await api('GET', '/api/admin/books-options');
   const fields = [
     { name: 'fullName', label: 'Customer full name', required: true, max: 200 },
-    { name: 'phone', label: 'WhatsApp number', required: true, placeholder: '+254712345678', hint: 'International format. An existing customer with this number is reused.' },
+    { name: 'phone', label: 'WhatsApp number', required: true, placeholder: '+255712345678', hint: 'International format. An existing customer with this number is reused.' },
     { name: 'email', label: 'Email (optional)', type: 'email' },
     { name: 'bookIds', label: 'Book(s)', type: 'multiselect', required: true, options: books.map((b) => [b.id, `${b.title} — ${fmtMoney(b.price_amount, b.currency)}`]), default: books.length === 1 ? [books[0].id] : [] },
     { name: 'reference', label: 'Order reference', placeholder: 'Leave empty to generate' },
@@ -1034,7 +1034,7 @@ async function viewWhatsapp() {
   ], content.site || {}, { submit: 'Save', columns: false, onSubmit: (v) => act(() => api('PUT', '/api/admin/website/site', v), { ok: 'Saved', reload: false }) });
   const f = buildForm([
     { name: 'contactName', label: 'Contact name shown to visitors', placeholder: 'e.g. Kenedy Njume', hint: 'Visitors without a private link see: “To get a book, contact [name] on WhatsApp”' },
-    { name: 'number', label: 'Business WhatsApp number', placeholder: '+254712345678', hint: 'The “Chat on WhatsApp” button opens a chat with this number' },
+    { name: 'number', label: 'Business WhatsApp number', placeholder: '+255712345678', hint: 'The “Chat on WhatsApp” button opens a chat with this number' },
     { name: 'orderMessage', label: 'Prefilled order message', type: 'textarea', full: true, hint: 'Placeholders: {book_title}' },
     { name: 'invitationTemplate', label: 'Invitation message sent to customers', type: 'textarea', full: true, rows: 10, required: true,
       hint: 'Placeholders: {customer_name}, {book_title}, {invitation_link} (required), {expiry_hours}' },

@@ -63,7 +63,7 @@ try {
   await pool.query(`UPDATE website_settings SET value=$1 WHERE key='site'`, [{ featuredBookId: book.id }]);
   const { rows: [wa] } = await pool.query(`SELECT value FROM website_settings WHERE key='whatsapp'`);
   await pool.query(`UPDATE website_settings SET value=$1 WHERE key='whatsapp'`,
-    [{ ...wa.value, contactName: wa.value.contactName || 'Kenedy Njume', number: wa.value.number || process.env.SEED_WHATSAPP || '+254700000000', orderMessage: 'Hello, I would like to order {book_title}.' }]);
+    [{ ...wa.value, contactName: wa.value.contactName || 'Kenedy Njume', number: wa.value.number || process.env.SEED_WHATSAPP || '+255700000000', orderMessage: 'Hello, I would like to order {book_title}.' }]);
 
   // --book <file>: use your own EPUB or PDF as the sample book's current edition.
   const bi = process.argv.indexOf('--book');
@@ -83,7 +83,7 @@ try {
     const day = 86400000;
     let made = 0;
     for (let i = 0; i < names.length; i += 1) {
-      const phone = `+2547990${String(10000 + i).slice(1)}`;
+      const phone = `+2557990${String(10000 + i).slice(1)}`;
       const { rowCount } = await pool.query('SELECT 1 FROM customers WHERE phone_e164=$1', [phone]);
       if (rowCount) continue;
       // Most sales in recent weeks, a tail over the last 7 months.

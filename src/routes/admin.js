@@ -288,8 +288,8 @@ export function adminRoutes(ctx) {
       if (!c) throw notFound();
       let phone = c.phone_e164;
       if (b.phone) {
-        phone = normalizePhone(b.phone, process.env.DEFAULT_COUNTRY_CODE || '');
-        if (!phone) throw badRequest('Enter the phone number in international format, e.g. +254712345678');
+        phone = normalizePhone(b.phone, process.env.DEFAULT_COUNTRY_CODE || '255');
+        if (!phone) throw badRequest('Enter the phone number in international format, e.g. +255712345678');
         // A changed number means the customer details changed: unused links are cancelled; send a new one.
         if (phone !== c.phone_e164) {
           await db.query(`UPDATE invitations SET status='REVOKED', revoked_at=now() WHERE customer_id=$1 AND status='PENDING'`, [id]);
@@ -411,8 +411,8 @@ export function adminRoutes(ctx) {
       let customerId = b.customerId;
       if (!customerId) {
         if (!b.fullName || !b.phone) throw badRequest('Customer name and WhatsApp number are required');
-        const phone = normalizePhone(b.phone, process.env.DEFAULT_COUNTRY_CODE || '');
-        if (!phone) throw badRequest('Enter the WhatsApp number in international format, e.g. +254712345678');
+        const phone = normalizePhone(b.phone, process.env.DEFAULT_COUNTRY_CODE || '255');
+        if (!phone) throw badRequest('Enter the WhatsApp number in international format, e.g. +255712345678');
         const { rows: [existing] } = await db.query('SELECT id FROM customers WHERE phone_e164=$1', [phone]);
         if (existing) customerId = existing.id;
         else {
@@ -748,7 +748,7 @@ export function adminRoutes(ctx) {
       value = { featuredBookId: v.featuredBookId ? uuidParam(v.featuredBookId) : null };
     } else {
       const number = v.number ? normalizePhone(String(v.number), '') : '';
-      if (v.number && !number) throw badRequest('Enter the WhatsApp number in international format, e.g. +254712345678');
+      if (v.number && !number) throw badRequest('Enter the WhatsApp number in international format, e.g. +255712345678');
       const invitationTemplate = str(v.invitationTemplate, 2000);
       if (!invitationTemplate.includes('{invitation_link}')) throw badRequest('The invitation message must contain {invitation_link}');
       value = { contactName: str(v.contactName, 120).trim(), number, orderMessage: str(v.orderMessage, 1000), invitationTemplate };

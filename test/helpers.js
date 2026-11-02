@@ -21,7 +21,7 @@ export async function setupEnv() {
     COOKIE_SECURE: 'false',
     TRUST_PROXY: 'false',
     READER_BASE_URL: 'http://127.0.0.1',
-    DEFAULT_COUNTRY_CODE: '254',
+    DEFAULT_COUNTRY_CODE: '255',
   });
   return { storageDir };
 }
@@ -178,7 +178,7 @@ let phoneSeq = 100000;
 /** Register a customer + order; optionally verify payment. Returns ids. */
 export async function createOrder(admin, bookId, { verify = true, phone } = {}) {
   phoneSeq += 1;
-  const p = phone || `+2547${String(phoneSeq).padStart(8, '0')}`;
+  const p = phone || `+2557${String(phoneSeq).padStart(8, '0')}`;
   const r = await admin.post('/api/admin/orders', {
     fullName: 'Jane Reader', phone: p, bookIds: [bookId], amount: '1500', currency: 'TZS',
     paymentMethod: 'M-PESA', paymentReference: `REF${phoneSeq}`,

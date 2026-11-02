@@ -53,7 +53,7 @@ test('CSRF token is required for admin state changes', async () => {
 test('cross-origin and form posts are rejected', async () => {
   const r = await owner.post('/api/admin/books', { title: 'x' }, { headers: { origin: 'https://evil.example' } });
   assert.equal(r.status, 403);
-  const form = await fetch(`${env.base}/api/auth/request-otp`, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: 'phone=%2B254700000000' });
+  const form = await fetch(`${env.base}/api/auth/request-otp`, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: 'phone=%2B255700000000' });
   assert.equal(form.status, 415);
 });
 
@@ -272,7 +272,7 @@ test('register customer with verified payment in one step; search and filter cus
   assert.equal(r.data.licenses.length, 1);
   const s = await owner.get('/api/admin/customers?q=Searchable');
   assert.equal(s.data.customers.length, 1);
-  assert.equal(s.data.customers[0].phone_e164, '+254711222333');
+  assert.equal(s.data.customers[0].phone_e164, '+255711222333');
   assert.equal(s.data.customers[0].status, 'PAID');
   const f = await owner.get('/api/admin/customers?status=PAID&sort=name&dir=asc&limit=2&page=1');
   assert.ok(f.data.customers.length <= 2);
@@ -303,20 +303,20 @@ test('overview metrics come from the database', async () => {
 
 test('visitors without a link see only a contact message; no book, no marketing website', async () => {
   assert.equal((await owner.request('PUT', '/api/admin/website/whatsapp', {
-    number: '+254700111222', orderMessage: 'Hi, I want {book_title}', invitationTemplate: 'Hi {customer_name} {invitation_link}',
+    number: '+255700111222', orderMessage: 'Hi, I want {book_title}', invitationTemplate: 'Hi {customer_name} {invitation_link}',
   })).status, 200);
   assert.equal((await owner.request('PUT', '/api/admin/website/site', { featuredBookId: bookId })).status, 200);
-  const bad = await owner.request('PUT', '/api/admin/website/whatsapp', { number: '+254700111222', invitationTemplate: 'no link' });
+  const bad = await owner.request('PUT', '/api/admin/website/whatsapp', { number: '+255700111222', invitationTemplate: 'no link' });
   assert.equal(bad.status, 400);
   assert.equal((await owner.request('PUT', '/api/admin/website/hero', { headline: 'x' })).status, 404, 'website sections are gone');
   assert.equal((await owner.post('/api/admin/testimonials', { authorName: 'A', quote: 'q' })).status, 404, 'testimonials are gone');
   assert.equal((await owner.request('PUT', '/api/admin/website/whatsapp', {
-    contactName: 'Kenedy Njume', number: '+254700111222', orderMessage: 'Hi, I want {book_title}', invitationTemplate: 'Hi {customer_name} {invitation_link}',
+    contactName: 'Kenedy Njume', number: '+255700111222', orderMessage: 'Hi, I want {book_title}', invitationTemplate: 'Hi {customer_name} {invitation_link}',
   })).status, 200);
   const anon = new Browser(env.base);
   const info = await anon.get('/api/public/contact');
   assert.equal(info.data.contactName, 'Kenedy Njume');
-  assert.match(info.data.orderUrl, /^https:\/\/wa\.me\/254700111222\?text=Hi%2C%20I%20want%20Test%20Book$/);
+  assert.match(info.data.orderUrl, /^https:\/\/wa\.me\/255700111222\?text=Hi%2C%20I%20want%20Test%20Book$/);
   assert.equal(info.data.book, undefined, 'no book is exposed to visitors without a link');
   assert.ok(!JSON.stringify(info.data).match(/storage_key|edition|phone_e164|cover/));
   assert.equal((await anon.get('/api/public/book')).status, 404);
