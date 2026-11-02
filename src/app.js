@@ -87,6 +87,18 @@ export function createApp(ctx) {
   const staticOpts = { index: false, fallthrough: true, maxAge: cfg.isProd ? '1h' : 0 };
   app.use('/assets', express.static(path.join(PUBLIC_DIR, 'assets'), staticOpts));
   app.use('/static/shared', express.static(path.join(PUBLIC_DIR, 'shared'), staticOpts));
+  // StPageFlip (MIT) for the 3D page turn. It normally injects a <style> tag, which the strict
+  // Content Security Policy blocks; its CSS lives in reader.css instead, so the injection is
+  // switched off here.
+  let pageFlipJs = null;
+  app.get('/static/vendor/page-flip.js', async (req, res) => {
+    if (!pageFlipJs) {
+      const src = await fs.readFile(path.join(path.dirname(PUBLIC_DIR), 'node_modules', 'page-flip', 'dist', 'js', 'page-flip.browser.js'), 'utf8');
+      pageFlipJs = src.replace('if(t&&"undefined"!=typeof document)', 'if(!1)');
+    }
+    res.set('Cache-Control', cfg.isProd ? 'public, max-age=86400' : 'no-cache');
+    res.type('application/javascript').send(pageFlipJs);
+  });
   // UIcons by Flaticon (icon font, served locally so the Content Security Policy stays strict).
   app.use('/static/uicons', express.static(path.join(path.dirname(PUBLIC_DIR), 'node_modules', '@flaticon', 'flaticon-uicons', 'css'), { ...staticOpts, maxAge: '30d' }));
   app.use('/static/admin', gated('admin', express.static(path.join(PUBLIC_DIR, 'admin'), staticOpts)));

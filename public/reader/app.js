@@ -567,11 +567,11 @@ class Reader {
     this.isPdf = manifest.format === 'PDF';
     this.items = manifest.items;
     this.loc = { index: Math.min(progress?.location?.index ?? 0, this.items.length - 1), page: progress?.location?.page ?? 0 };
-    this.pages = 1;
     this.html = new Map(); // chapter index -> sanitized HTML (memory only)
     this.assets = new Map(); // asset id -> blob URL (EPUB images)
     this.pages_ = new Map(); // PDF page id -> ImageBitmap
-    this.busy = false;
+    this.layouts = new Map(); // EPUB chapter -> page layout
+    this.aspect = 0.707; // PDF page width / height (A4 until the first page is known)
     this.fs = Number(prefs.get('fs', 19));
     this.theme = prefs.get('theme', 'sepia');
   }
@@ -586,7 +586,7 @@ class Reader {
         const res = await api('GET', url, undefined, { signed: true, raw: true });
         this.pages_.set(id, await createImageBitmap(await res.blob()));
         for (const [k, bmp] of this.pages_) {
-          if (this.pages_.size <= 6) break;
+          if (this.pages_.size <= 10) break;
           if (k !== id) { bmp.close(); this.pages_.delete(k); }
         }
       }
@@ -619,193 +619,201 @@ class Reader {
     return loaded;
   }
 
-  // --- Layout ---------------------------------------------------------------
-  geometry() {
-    const vp = this.top.querySelector('.viewport');
-    const w = vp.clientWidth; const gap = 40;
-    return { w, gap, step: w + gap };
+  // --- Book layout and realistic 3D page turning (StPageFlip) ------------------
+  // Phones and narrow windows show one page; wide screens show an open two-page spread.
+  // PDF: every page is a slot, filled with its watermarked image only when near the reader.
+  // EPUB: chapters are laid out into pages; a small window of chapters is loaded at a time.
+
+  /** Page size for the current screen. */
+  pageSize() {
+    const r = this.bookEl.getBoundingClientRect();
+    const W = Math.max(200, r.width - 16); const H = Math.max(240, r.height - 16);
+    const spread = W >= 860 && W / H > 1.15;
+    // EPUB on a single page fills the screen like a phone book; otherwise keep a book shape.
+    const aspect = this.isPdf ? this.aspect : (spread ? 0.7 : W / H);
+    let h = H; let w = h * aspect;
+    const cols = spread ? 2 : 1;
+    if (w * cols > W) { w = W / cols; h = w / aspect; }
+    return { w: Math.floor(w), h: Math.floor(h), spread };
   }
 
-  /** Render chapter i into a layer and position it at page p. Returns page count. */
-  async paint(layer, i, p) {
-    const vp = layer.querySelector('.viewport');
-    if (this.isPdf) {
-      const bmp = await this.fetchItem(i);
-      const c = h('canvas', { role: 'img', 'aria-label': `Page ${i + 1}` });
-      c.width = bmp.width; c.height = bmp.height;
-      c.getContext('2d').drawImage(bmp, 0, 0);
-      vp.replaceChildren(h('div', { class: 'pdfpage' }, c));
-      layer.dataset.idx = String(i);
-      layer.querySelector('.pageno').textContent = `${i + 1} / ${this.items.length}`;
-      return 1;
+  pageEl(label) {
+    return h('div', { class: 'page', 'data-density': 'soft' },
+      h('div', { class: 'page-inner' }), h('div', { class: 'pageno', text: label }));
+  }
+
+  // PDF ---------------------------------------------------------------------
+  buildPdf() {
+    this.slots = this.items.map((it, i) => ({ index: i, page: 0 }));
+    return this.items.map((it, i) => this.pageEl(`${i + 1}`));
+  }
+
+  async fillPdf(center) {
+    const nodes = this.nodes;
+    for (let i = 0; i < nodes.length; i += 1) {
+      const inner = nodes[i].querySelector('.page-inner');
+      const near = i >= center - 2 && i <= center + 4;
+      if (!near) { if (inner.firstChild && Math.abs(i - center) > 8) inner.replaceChildren(); continue; }
+      if (inner.firstChild) continue;
+      inner.dataset.loading = '1';
+      try {
+        const bmp = await this.fetchItem(i);
+        const c = h('canvas', { role: 'img', 'aria-label': `Page ${i + 1}` });
+        c.width = bmp.width; c.height = bmp.height;
+        c.getContext('2d').drawImage(bmp, 0, 0);
+        inner.replaceChildren(c);
+      } catch (err) { if (await handleAuthError(err)) return; } finally { delete inner.dataset.loading; }
     }
-    if (layer.dataset.idx !== String(i)) {
-      const html = await this.fetchItem(i);
-      const flow = h('div', { class: 'flow' });
-      // Content was sanitized server-side; the CSP additionally blocks any script execution.
-      flow.innerHTML = html;
-      flow.querySelectorAll('a[href]').forEach((a) => { a.target = '_blank'; a.rel = 'noopener noreferrer'; });
-      vp.replaceChildren(flow);
-      layer.dataset.idx = String(i);
-      // Images change the column layout, so re-measure once they are in (only if there were any).
-      this.hydrateImages(flow).then((n) => { if (n && layer === this.top && flow.isConnected) this.remeasure(); });
+  }
+
+  // EPUB ----------------------------------------------------------------------
+  innerBox() {
+    const { w, h } = this.size;
+    const padX = Math.max(18, Math.round(w * 0.075)); const padTop = Math.max(22, Math.round(h * 0.05)); const padBottom = padTop + 18;
+    return { iw: w - padX * 2, ih: h - padTop - padBottom, padX, padTop, padBottom, gap: 40 };
+  }
+
+  /** Lay a chapter out into pages (cached per page size and text size). */
+  async paginate(ch) {
+    const key = `${ch}:${this.size.w}x${this.size.h}:${this.fs}`;
+    if (this.layouts.get(ch)?.key === key) return this.layouts.get(ch);
+    const html = await this.fetchItem(ch);
+    const { iw, ih, gap } = this.innerBox();
+    const flow = h('div', { class: 'flow' });
+    flow.innerHTML = html; // sanitized on the server; CSP blocks scripts
+    flow.querySelectorAll('a[href]').forEach((a) => { a.target = '_blank'; a.rel = 'noopener noreferrer'; });
+    Object.assign(flow.style, { width: `${iw}px`, height: `${ih}px`, columnWidth: `${iw}px`, columnGap: `${gap}px` });
+    this.measure.replaceChildren(flow);
+    await this.hydrateImages(flow);
+    const pages = Math.max(1, Math.round((flow.scrollWidth + gap) / (iw + gap)));
+    const layout = { key, tpl: flow, pages, step: iw + gap, text: flow.textContent.length || 1 };
+    this.layouts.set(ch, layout);
+    return layout;
+  }
+
+  async buildEpub(lo, hi) {
+    this.slots = []; this.chapterStart = new Map(); this.win = { lo, hi };
+    const nodes = [];
+    const { padX, padTop, padBottom } = this.innerBox();
+    for (let ch = lo; ch <= hi; ch += 1) {
+      const L = await this.paginate(ch);
+      this.chapterStart.set(ch, this.slots.length);
+      for (let p = 0; p < L.pages; p += 1) {
+        const node = this.pageEl(`${p + 1} / ${L.pages}`);
+        const inner = node.querySelector('.page-inner');
+        Object.assign(inner.style, { padding: `${padTop}px ${padX}px ${padBottom}px` });
+        const vp = h('div', { class: 'viewport' });
+        const flow = L.tpl.cloneNode(true);
+        flow.style.transform = `translateX(${-p * L.step}px)`;
+        vp.append(flow); inner.append(vp);
+        nodes.push(node); this.slots.push({ index: ch, page: p });
+      }
     }
-    const flow = vp.querySelector('.flow');
-    const { w, gap, step } = this.geometry();
-    flow.style.columnWidth = `${w}px`;
-    flow.style.columnGap = `${gap}px`;
-    flow.style.width = `${w}px`;
-    const pages = Math.max(1, Math.round((flow.scrollWidth + gap) / step));
-    const page = p === 'last' ? pages - 1 : Math.min(Math.max(0, p), pages - 1);
-    flow.style.transform = `translateX(${-page * step}px)`;
-    layer.dataset.page = String(page);
-    layer.querySelector('.pageno').textContent = `${page + 1} / ${pages}`;
-    return pages;
+    return nodes;
   }
 
-  next(loc) {
-    if (this.isPdf) return loc.index + 1 < this.items.length ? { index: loc.index + 1, page: 0 } : null;
-    if (loc.page + 1 < this.pages) return { index: loc.index, page: loc.page + 1 };
-    return loc.index + 1 < this.items.length ? { index: loc.index + 1, page: 0 } : null;
+  slotOf(index, page) {
+    if (this.isPdf) return Math.min(Math.max(0, index), this.items.length - 1);
+    const start = this.chapterStart.get(index);
+    if (start === undefined) return -1;
+    const pages = this.layouts.get(index).pages;
+    const p = page === 'last' ? pages - 1 : Math.min(Math.max(0, page), pages - 1);
+    return start + p;
   }
 
-  prev(loc) {
-    if (this.isPdf) return loc.index > 0 ? { index: loc.index - 1, page: 0 } : null;
-    if (loc.page > 0) return { index: loc.index, page: loc.page - 1 };
-    return loc.index > 0 ? { index: loc.index - 1, page: 'last' } : null;
+  /** (Re)build the flip book for the current screen, opening at a location. */
+  async mountBook(loc) {
+    this.size = this.pageSize();
+    const { w, h: ph, spread } = this.size;
+    if (!this.isPdf) {
+      const last = this.items.length - 1;
+      const lo = Math.max(0, loc.index - (loc.page === 'last' || loc.index > 0 ? 1 : 0));
+      this.nodes = await this.buildEpub(lo, Math.min(last, loc.index + 1));
+    } else {
+      this.nodes = this.buildPdf();
+    }
+    const start = Math.max(0, this.slotOf(loc.index, loc.page));
+    try { this.flip?.destroy(); } catch { /* already gone */ }
+    const host = h('div', { class: 'flip-host' });
+    host.style.width = `${spread ? w * 2 : w}px`; host.style.height = `${ph}px`;
+    this.bookEl.querySelector('.flip-host')?.remove();
+    this.bookEl.append(host);
+    this.el.classList.toggle('spread', spread);
+    // eslint-disable-next-line no-undef
+    this.flip = new St.PageFlip(host, {
+      width: w, height: ph, size: 'fixed', usePortrait: true, autoSize: false,
+      showCover: this.isPdf && spread, drawShadow: true, maxShadowOpacity: 0.55,
+      flippingTime: matchMedia('(prefers-reduced-motion: reduce)').matches ? 1 : 850, showPageCorners: true, mobileScrollSupport: false,
+      swipeDistance: 24, clickEventForward: true, startPage: start, startZIndex: 1,
+    });
+    this.flip.loadFromHTML(this.nodes);
+    this.flip.on('flip', (e) => this.onFlip(e.data));
+    this.onFlip(start);
   }
 
-  async show(loc) {
-    this.pages = await this.paint(this.top, loc.index, loc.page);
-    this.loc = { index: loc.index, page: Number(this.top.dataset.page || 0) };
-    this.resetTop();
+  async onFlip(i) {
+    const slot = this.slots[i];
+    if (!slot) return;
+    this.loc = { index: slot.index, page: slot.page };
     this.updateChrome();
     this.saveProgress();
-    // Prepare the page underneath (the next page) for forward flips.
-    const n = this.next(this.loc);
-    if (n) await this.paint(this.under, n.index, n.page); else this.under.querySelector('.viewport').replaceChildren();
+    if (this.isPdf) return this.fillPdf(i);
+    // Keep a small window of chapters loaded around the reader.
+    if (this.extending) return undefined;
+    const last = this.items.length - 1;
+    if (i >= this.slots.length - 3 && this.win.hi < last) await this.setWindow(Math.max(this.win.lo, slot.index - 1), this.win.hi + 1, slot);
+    else if (i <= 2 && this.win.lo > 0) await this.setWindow(this.win.lo - 1, Math.min(this.win.hi, slot.index + 1), slot);
+    return undefined;
   }
 
-  resetTop() {
-    this.top.classList.remove('anim');
-    this.top.style.transform = 'rotateY(0deg)';
-    this.top.querySelector('.shade').style.opacity = '0';
-  }
-
-  /** Recount pages of the current chapter without re-rendering it. */
-  async remeasure() {
-    const ratio = this.pages > 1 ? this.loc.page / (this.pages - 1) : 0;
-    this.pages = await this.paint(this.top, this.loc.index, 0);
-    await this.show({ index: this.loc.index, page: Math.round(ratio * (this.pages - 1)) });
-  }
-
-  async relayout(keep) {
-    if (this.isPdf) return;
-    const ratio = this.pages > 1 ? this.loc.page / (this.pages - 1) : 0;
-    this.top.dataset.idx = ''; this.under.dataset.idx = '';
-    this.pages = await this.paint(this.top, this.loc.index, 0);
-    await this.show({ index: this.loc.index, page: keep ? Math.round(ratio * (this.pages - 1)) : this.loc.page });
-  }
-
-  // --- Page turning with the page-flip effect --------------------------------
-  setAngle(layer, deg) {
-    layer.style.transform = `rotateY(${deg}deg)`;
-    layer.querySelector('.shade').style.opacity = String(Math.sin((Math.abs(deg) * Math.PI) / 180) * 0.9);
-  }
-
-  animateTo(layer, deg) {
-    return new Promise((resolve) => {
-      if (matchMedia('(prefers-reduced-motion: reduce)').matches) { this.setAngle(layer, deg); return resolve(); }
-      layer.classList.add('anim');
-      requestAnimationFrame(() => {
-        this.setAngle(layer, deg);
-        const done = () => { layer.classList.remove('anim'); resolve(); };
-        layer.addEventListener('transitionend', done, { once: true });
-        setTimeout(done, 600);
-      });
-    });
-  }
-
-  /** Begin a turn: returns a controller with update(progress 0..1), commit(), cancel(). */
-  async beginTurn(dir) {
-    const target = dir > 0 ? this.next(this.loc) : this.prev(this.loc);
-    if (!target) return null;
-    const top = this.top; const under = this.under;
-    if (dir > 0) {
-      // Top shows the current page and folds away to reveal the next page underneath.
-      return {
-        update: (t) => this.setAngle(top, -180 * t),
-        commit: async () => { await this.animateTo(top, -180); await this.show(target); },
-        cancel: async () => { await this.animateTo(top, 0); },
-      };
-    }
-    // Backward: underneath shows the current page; the previous page folds back in on top.
-    await this.paint(under, this.loc.index, this.loc.page);
-    await this.paint(top, target.index, target.page);
-    this.setAngle(top, -180);
-    return {
-      update: (t) => this.setAngle(top, -180 + 180 * t),
-      commit: async () => { await this.animateTo(top, 0); await this.show({ index: target.index, page: Number(top.dataset.page) }); },
-      cancel: async () => { await this.animateTo(top, -180); await this.show(this.loc); },
-    };
-  }
-
-  async turn(dir) {
-    if (this.busy) return;
-    this.busy = true;
+  async setWindow(lo, hi, keep) {
+    this.extending = true;
     try {
-      const t = await this.beginTurn(dir);
-      if (t) await t.commit();
-    } catch (err) { if (!(await handleAuthError(err))) toast(err.message); } finally { this.busy = false; }
+      this.nodes = await this.buildEpub(lo, hi);
+      this.flip.updateFromHtml(this.nodes);
+      const target = this.slotOf(keep.index, keep.page);
+      if (target >= 0) this.flip.turnToPage(target);
+    } catch (err) { if (!(await handleAuthError(err))) toast(err.message); } finally { this.extending = false; }
   }
 
-  bindGestures(stage) {
-    let start = null; let ctl = null; let dir = 0; let pending = null;
-    stage.addEventListener('pointerdown', (e) => {
-      if (this.busy || e.button > 0 || e.target.closest('a')) return;
-      start = { x: e.clientX, y: e.clientY, t: Date.now() }; dir = 0; ctl = null;
-    });
-    stage.addEventListener('pointermove', async (e) => {
-      if (!start) return;
-      const dx = e.clientX - start.x;
-      if (!dir) {
-        if (Math.abs(dx) < 10 || Math.abs(dx) < Math.abs(e.clientY - start.y)) return;
-        dir = dx < 0 ? 1 : -1;
-        stage.setPointerCapture(e.pointerId);
-        this.busy = true;
-        pending = this.beginTurn(dir).then((c) => { ctl = c; if (!c) this.busy = false; return c; });
-      }
-      if (ctl) ctl.update(Math.min(1, Math.abs(dx) / (stage.clientWidth * 0.9)));
-    });
-    const end = async (e) => {
-      if (!start) return;
-      const dx = e.clientX - start.x; const quick = Date.now() - start.t < 250;
-      const s = start; start = null;
-      if (!dir) {
-        // A tap: side zones turn pages, the middle toggles the reading chrome.
-        const x = e.clientX - stage.getBoundingClientRect().left;
-        if (Math.abs(dx) < 10 && Math.abs(e.clientY - s.y) < 10 && !e.target.closest('a')) {
-          if (x < stage.clientWidth * 0.25) this.turn(-1);
-          else if (x > stage.clientWidth * 0.75) this.turn(1);
-          else this.el.classList.toggle('immersive');
-        }
-        return;
-      }
-      const c = await pending;
+  /** Jump to a chapter/page (contents, bookmarks, search, links). */
+  async goTo(index, page = 0, anchor = '') {
+    this.closeDrawer();
+    if (this.isPdf) { const s = this.slotOf(index); this.flip.turnToPage(s); return this.onFlip(s); }
+    if (!this.chapterStart.has(index)) {
+      this.extending = true;
       try {
-        if (c) {
-          if (Math.abs(dx) > stage.clientWidth * 0.22 || (quick && Math.abs(dx) > 30)) await c.commit(); else await c.cancel();
-        }
-      } catch (err) { if (!(await handleAuthError(err))) toast(err.message); } finally { this.busy = false; dir = 0; }
-    };
-    stage.addEventListener('pointerup', end);
-    stage.addEventListener('pointercancel', end);
+        this.nodes = await this.buildEpub(Math.max(0, index - 1), Math.min(this.items.length - 1, index + 1));
+        this.flip.updateFromHtml(this.nodes);
+      } finally { this.extending = false; }
+    }
+    let p = page;
+    if (anchor) {
+      const L = this.layouts.get(index);
+      this.measure.replaceChildren(L.tpl);
+      const target = L.tpl.querySelector(`#${CSS.escape(anchor)}`);
+      if (target) p = Math.floor((target.getBoundingClientRect().left - L.tpl.getBoundingClientRect().left) / L.step);
+    }
+    const s = this.slotOf(index, p);
+    this.flip.turnToPage(s);
+    return this.onFlip(s);
+  }
+
+  turn(dir) {
+    if (!this.flip || this.extending) return;
+    if (dir > 0) this.flip.flipNext('bottom'); else this.flip.flipPrev('bottom');
+  }
+
+  async relayout() {
+    if (!this.flip) return;
+    this.layouts.clear();
+    try { await this.mountBook(this.loc); } catch (err) { if (!(await handleAuthError(err))) toast(err.message); }
   }
 
   // --- Chrome: progress, TOC, bookmarks, search, settings ---------------------
   percent() {
     const n = this.items.length;
-    const within = this.isPdf ? 1 : (this.loc.page + 1) / this.pages;
+    const within = this.isPdf ? 1 : (this.loc.page + 1) / (this.layouts.get(this.loc.index)?.pages || 1);
     return Math.min(100, Math.round(((this.loc.index + within) / n) * 100));
   }
 
@@ -842,21 +850,7 @@ class Reader {
 
   closeDrawer() { (this.openDrawer || []).forEach((n) => n.remove()); this.openDrawer = null; }
 
-  async gotoChapter(index, anchor) {
-    this.closeDrawer();
-    this.top.dataset.idx = '';
-    this.pages = await this.paint(this.top, index, 0);
-    let page = 0;
-    if (anchor && !this.isPdf) {
-      const flow = this.top.querySelector('.flow');
-      const target = flow.querySelector(`#${CSS.escape(anchor)}`);
-      if (target) {
-        flow.style.transform = 'none';
-        page = Math.floor((target.getBoundingClientRect().left - flow.getBoundingClientRect().left) / this.geometry().step);
-      }
-    }
-    await this.show({ index, page });
-  }
+  gotoChapter(index, anchor) { return this.goTo(index, 0, anchor); }
 
   showToc() {
     const list = this.manifest.toc.length ? this.manifest.toc : this.items.map((it) => ({ label: it.title || `Section ${it.index + 1}`, chapter: it.index, level: 0 }));
@@ -878,7 +872,7 @@ class Reader {
       if (!bookmarks.length) list.append(h('p', { class: 'pad hint', text: 'No bookmarks yet.' }));
       for (const bm of bookmarks) {
         const row = h('div', { class: 'item' },
-          h('button', { class: 'btn-link', onclick: () => { this.closeDrawer(); this.top.dataset.idx = ''; this.show({ index: bm.location.index, page: bm.location.page || 0 }); } }, bm.label || `Location ${bm.location.index + 1}`),
+          h('button', { class: 'btn-link', onclick: () => this.goTo(bm.location.index, bm.location.page || 0) }, bm.label || `Location ${bm.location.index + 1}`),
           h('small', { text: new Date(bm.created_at).toLocaleString() }),
           h('button', { class: 'btn btn-small btn-danger', onclick: async () => { await api('DELETE', `/api/reader/bookmarks/${bm.id}`, undefined, { signed: true }); row.remove(); } }, 'Remove'));
         list.append(row);
@@ -914,10 +908,10 @@ class Reader {
   }
 
   async gotoSearchHit(m) {
-    await this.gotoChapter(m.index);
-    const flow = this.top.querySelector('.flow');
-    const total = (flow?.textContent || '').length || 1;
-    await this.show({ index: m.index, page: Math.floor((m.offset / total) * this.pages) });
+    if (this.isPdf) return this.goTo(m.index);
+    await this.goTo(m.index, 0);
+    const L = this.layouts.get(m.index);
+    return this.goTo(m.index, Math.floor((m.offset / L.text) * L.pages));
   }
 
   showSettings() {
@@ -948,7 +942,7 @@ class Reader {
     this.fs = Math.max(14, Math.min(30, px));
     prefs.set('fs', this.fs);
     this.el.style.setProperty('--fs', `${this.fs}px`);
-    this.relayout(true);
+    this.relayout();
   }
 
   setTheme(t) {
@@ -960,6 +954,8 @@ class Reader {
   leave() {
     clearTimeout(this.saveTimer);
     this.closeDrawer();
+    try { this.flip?.destroy(); } catch { /* ignore */ }
+    this.flip = null;
     for (const u of this.assets.values()) URL.revokeObjectURL(u);
     for (const b of this.pages_.values()) b.close();
     this.assets.clear(); this.html.clear(); this.pages_.clear();
@@ -967,14 +963,15 @@ class Reader {
 
   // --- Mount -------------------------------------------------------------------
   async start() {
-    const layer = (cls) => h('div', { class: `layer ${cls}` }, h('div', { class: 'viewport' }), h('div', { class: 'pageno' }), h('div', { class: 'shade' }));
-    this.top = layer('top'); this.under = layer('under');
     const wm = h('div', { class: 'watermark', 'aria-hidden': 'true' });
     // PDF pages already carry the buyer's watermark in their pixels; EPUB text gets an overlay.
     if (!this.isPdf) for (let i = 0; i < 24; i += 1) wm.append(h('span', { text: this.manifest.watermark }));
-    const stage = h('div', { class: 'stage' }, h('div', { class: 'book' }, this.under, this.top), wm,
-      h('button', { class: 'zone l', 'aria-label': 'Previous page', tabindex: '-1', onclick: (e) => e.preventDefault() }),
-      h('button', { class: 'zone r', 'aria-label': 'Next page', tabindex: '-1', onclick: (e) => e.preventDefault() }));
+    this.bookEl = h('div', { class: 'book' });
+    this.measure = h('div', { class: 'measure', 'aria-hidden': 'true' });
+    const stage = h('div', { class: 'stage' }, this.bookEl, wm, this.measure,
+      h('button', { class: 'navbtn prev', 'aria-label': 'Previous page', onclick: () => this.turn(-1) }, fi('arrow-left')),
+      h('button', { class: 'navbtn next', 'aria-label': 'Next page', onclick: () => this.turn(1) }, fi('arrow-right')));
+    this.stage = stage;
     this.footLeft = h('span'); this.footRight = h('span');
     this.progressBar = h('i');
     const ib = (label, icon, fn) => h('button', { class: 'ibtn', 'aria-label': label, title: label, onclick: fn }, icon);
@@ -1002,7 +999,6 @@ class Reader {
     });
     mount(this.el);
     onCleanup(() => this.leave());
-    this.bindGestures(stage);
 
     const onKey = (e) => {
       if (e.target.closest('input, textarea') || this.openDrawer) return;
@@ -1035,7 +1031,15 @@ class Reader {
       removeEventListener('keyup', onGuardKey); removeEventListener('keydown', onGuardKey);
     });
     let rt;
-    const onResize = () => { clearTimeout(rt); rt = setTimeout(() => this.relayout(true), 200); };
+    let lastSize = '';
+    const onResize = () => {
+      clearTimeout(rt);
+      rt = setTimeout(() => {
+        const r = this.bookEl.getBoundingClientRect();
+        const key = `${Math.round(r.width / 20)}x${Math.round(r.height / 20)}`;
+        if (key !== lastSize) { lastSize = key; this.relayout(); }
+      }, 250);
+    };
     addEventListener('resize', onResize);
     // Revalidate access whenever the app returns to the foreground.
     const onVisible = () => { if (document.visibilityState === 'visible') api('POST', '/api/access/validate-license', { bookId: this.bookId }).catch((err) => handleAuthError(err)); };
@@ -1043,8 +1047,14 @@ class Reader {
     onCleanup(() => { removeEventListener('keydown', onKey); removeEventListener('resize', onResize); document.removeEventListener('visibilitychange', onVisible); });
 
     try {
-      this.pages = await this.paint(this.top, this.loc.index, 0);
-      await this.show(this.loc);
+      if (this.isPdf) {
+        // Use the real page shape of this book.
+        const first = await this.fetchItem(this.loc.index);
+        this.aspect = first.width / first.height;
+      }
+      const r = this.bookEl.getBoundingClientRect();
+      lastSize = `${Math.round(r.width / 20)}x${Math.round(r.height / 20)}`;
+      await this.mountBook(this.loc);
     } catch (err) { if (!(await handleAuthError(err))) toast(err.message); }
   }
 }

@@ -73,12 +73,6 @@ body { background: var(--paper); min-height: 100vh; min-height: 100dvh; }
 .ibtn:hover { background: rgba(127, 127, 127, .12); }
 .ibtn[aria-pressed="true"] { color: var(--gold); }
 .stage { position: relative; flex: 1; overflow: hidden; touch-action: pan-y; }
-.book { position: absolute; inset: 14px 14px 10px; perspective: 2000px; }
-.layer { position: absolute; inset: 0; background: var(--rbg); transform-origin: left center; backface-visibility: hidden; -webkit-backface-visibility: hidden; overflow: hidden; border-radius: 2px 6px 6px 2px; will-change: transform; }
-.layer.top { z-index: 2; box-shadow: 2px 0 12px rgba(0, 0, 0, .08); }
-.layer.under { z-index: 1; }
-.layer.anim { transition: transform .45s cubic-bezier(.3, .7, .3, 1); }
-.layer .shade { position: absolute; inset: 0; pointer-events: none; opacity: 0; background: linear-gradient(to right, rgba(0, 0, 0, .28), rgba(0, 0, 0, .04) 60%, rgba(255, 255, 255, .15)); }
 .viewport { position: absolute; inset: 18px 22px 30px; overflow: hidden; }
 .flow { height: 100%; column-fill: auto; font-family: var(--serif); font-size: var(--fs, 19px); line-height: 1.62; hyphens: auto; -webkit-hyphens: auto; text-align: justify; overflow-wrap: break-word; }
 .flow h1, .flow h2, .flow h3 { text-align: left; break-after: avoid; font-family: var(--serif); }
@@ -96,14 +90,10 @@ body { background: var(--paper); min-height: 100vh; min-height: 100dvh; }
 .reader.shielded .stage::after { content: "Reading paused. Return to the book to continue."; position: absolute; inset: 0; z-index: 6; display: grid; place-items: center; font: 600 1rem var(--sans); color: var(--rfg); background: rgba(127, 127, 127, .08); }
 .pageno { position: absolute; bottom: 8px; left: 0; right: 0; text-align: center; font-size: .75rem; color: var(--rmuted); }
 .watermark { position: absolute; inset: 0; z-index: 3; pointer-events: none; overflow: hidden; display: flex; flex-wrap: wrap; align-content: space-around; justify-content: space-around; opacity: .05; transform: rotate(-24deg) scale(1.4); font-size: .85rem; color: var(--rfg); }
-.zone { position: absolute; top: 0; bottom: 0; width: 22%; z-index: 4; border: 0; background: transparent; cursor: pointer; }
-.zone.l { left: 0; } .zone.r { right: 0; }
 .rfoot { padding: 6px 14px calc(8px + env(safe-area-inset-bottom)); background: var(--rchrome); border-top: 1px solid rgba(127, 127, 127, .18); font-size: .8rem; color: var(--rmuted); z-index: 5; }
 .rfoot .row { display: flex; justify-content: space-between; gap: 10px; }
 .rfoot .bar { margin: 0 0 6px; background: rgba(127, 127, 127, .2); }
 .rfoot .bar > i { background: var(--gold); }
-.reader.immersive .rbar, .reader.immersive .rfoot { display: none; }
-.loading-page { position: absolute; inset: 0; display: grid; place-items: center; color: var(--rmuted); }
 
 .drawer { position: fixed; z-index: 50; top: 0; bottom: 0; right: 0; width: min(380px, 100vw); background: var(--surface); color: var(--ink); box-shadow: -8px 0 32px rgba(0, 0, 0, .2); display: flex; flex-direction: column; }
 .drawer header { display: flex; justify-content: space-between; align-items: center; padding: calc(10px + env(safe-area-inset-top)) 14px 10px; border-bottom: 1px solid var(--line); }
@@ -145,3 +135,38 @@ body { background: var(--paper); min-height: 100vh; min-height: 100dvh; }
 .ios-pointer { position: fixed; left: 50%; bottom: calc(10px + env(safe-area-inset-bottom)); transform: translateX(-50%); display: grid; justify-items: center; gap: 2px; color: #1f6feb; font-weight: 700; font-size: .9rem; animation: nudge 1.6s ease-in-out infinite; }
 .ios-pointer .fi { font-size: 1.6rem; }
 @keyframes nudge { 0%, 100% { transform: translate(-50%, 0); } 50% { transform: translate(-50%, 8px); } }
+
+/* ---------- 3D book (StPageFlip, MIT). Library CSS copied here because the CSP blocks injected styles. */
+.stf__parent { position: relative; display: block; box-sizing: border-box; transform: translateZ(0); touch-action: pan-y; }
+.sft__wrapper, .stf__wrapper { position: relative; width: 100%; box-sizing: border-box; }
+/* Fixed-size book: the wrapper fills the host so pages sit inside it, not above it. */
+.flip-host > .stf__wrapper, .flip-host > .sft__wrapper { height: 100%; }
+.stf__parent canvas { position: absolute; width: 100%; height: 100%; left: 0; top: 0; }
+.stf__block { position: absolute; width: 100%; height: 100%; box-sizing: border-box; perspective: 2000px; }
+.stf__item { display: none; position: absolute; transform-style: preserve-3d; }
+.stf__outerShadow, .stf__innerShadow, .stf__hardShadow, .stf__hardInnerShadow { position: absolute; left: 0; top: 0; }
+
+.reader .book { position: absolute; inset: 8px; display: grid; place-items: center; }
+.reader .flip-host { position: relative; }
+.reader .page { background: var(--rpage, #fffdf7); color: var(--rfg); overflow: hidden; box-shadow: 0 0 1px rgba(0, 0, 0, .15); }
+.reader.theme-light { --rpage: #ffffff; }
+.reader.theme-dark { --rpage: #1d2026; }
+.reader .page-inner { position: absolute; inset: 0; display: grid; place-items: center; }
+.reader .page-inner .viewport { position: relative; inset: auto; overflow: hidden; width: 100%; height: 100%; }
+.reader .page-inner canvas { max-width: 100%; max-height: 100%; width: 100%; height: 100%; object-fit: contain; display: block; }
+.reader.theme-dark .page-inner canvas { filter: invert(.88) hue-rotate(180deg); }
+.reader .page-inner[data-loading]::after { content: ""; width: 26px; height: 26px; border: 3px solid rgba(127, 127, 127, .25); border-top-color: var(--gold); border-radius: 50%; animation: spin .8s linear infinite; }
+.reader .page .pageno { position: absolute; bottom: 8px; left: 0; right: 0; text-align: center; font-size: .72rem; color: var(--rmuted); pointer-events: none; }
+/* Spine shading on an open spread, like a real book. */
+.reader .page.--left::after, .reader .page.--right::after { content: ""; position: absolute; top: 0; bottom: 0; width: 9%; pointer-events: none; }
+.reader .page.--left::after { right: 0; background: linear-gradient(to left, rgba(0, 0, 0, .16), rgba(0, 0, 0, 0)); }
+.reader .page.--right::after { left: 0; background: linear-gradient(to right, rgba(0, 0, 0, .16), rgba(0, 0, 0, 0)); }
+.reader.spread .stage { background: radial-gradient(ellipse at center, rgba(0, 0, 0, .04), rgba(0, 0, 0, .12)); }
+.reader.spread .flip-host { filter: drop-shadow(0 10px 24px rgba(0, 0, 0, .18)); }
+.measure { position: absolute; left: -10000px; top: 0; visibility: hidden; pointer-events: none; }
+.measure .flow { position: absolute; }
+.navbtn { position: absolute; bottom: 10px; z-index: 6; width: 44px; height: 44px; border: 0; border-radius: 50%; background: transparent; color: var(--rmuted); font-size: 1.4rem; cursor: pointer; display: none; place-items: center; }
+.navbtn:hover { color: var(--rfg); background: rgba(127, 127, 127, .12); }
+.navbtn.prev { left: 10px; } .navbtn.next { right: 10px; }
+.reader.spread .navbtn { display: grid; }
+@media (pointer: fine) { .navbtn { display: grid; } }

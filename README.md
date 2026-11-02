@@ -9,7 +9,7 @@ The platform has three parts in one Node.js service:
 |---|---|---|
 | Download page | `/` on the reader host | Single-screen book page: DOWNLOAD BOOK installs the reader, START READING opens the book |
 | Management dashboard | `/admin` | Books, customers, orders, payment verification, invitations, devices, licenses, monitoring |
-| Reader PWA | `/app`, `/access/<token>`, `/read/<id>` | Private link pages, “My Books” app with page-flip reader |
+| Reader PWA | `/app`, `/access/<token>`, `/read/<id>` | Private link pages, “My Books” app with a realistic 3D page-turning reader (single page on phones, open two-page book on desktop) |
 | API | `/api/...` | Authenticated, validated JSON API ([docs/API.md](docs/API.md)) |
 
 The customer site and the dashboard run on separate domains in production
@@ -131,6 +131,7 @@ docs/           documentation
 
 ## Credits
 
+Page turning: [StPageFlip](https://github.com/Nodlik/StPageFlip) by Nodlik (MIT licence).
 Icons: [UIcons by Flaticon](https://www.flaticon.com/uicons), used under the Flaticon licence with attribution.
 
 ## License
