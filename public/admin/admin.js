@@ -175,12 +175,6 @@ function pager(data, onPage) {
 // Icons (inline SVG, stroke style)
 // ===========================================================================
 const SVGNS = 'http://www.w3.org/2000/svg';
-function svgEl(tag, attrs = {}, ...children) {
-  const el = document.createElementNS(SVGNS, tag);
-  for (const [k, v] of Object.entries(attrs)) if (v !== undefined && v !== null) el.setAttribute(k, String(v));
-  for (const c of children.flat(Infinity)) if (c) el.append(c);
-  return el;
-}
 // Icons: UIcons by Flaticon (https://www.flaticon.com/uicons), regular rounded set.
 const UICONS = {
   home: 'rr-home', orders: 'rr-shopping-bag', payments: 'rr-credit-card', customers: 'rr-users', invitations: 'rr-envelope',
@@ -200,143 +194,16 @@ const initials = (name) => String(name || '?').trim().split(/\s+/).slice(0, 2).m
 // Charts (hand-built SVG; colours validated for contrast and colour-blind separation)
 // ===========================================================================
 const SERIES = ['#e8592a', '#3f4fb5'];
-function niceMax(v) {
-  if (v <= 4) return 4;
-  const p = 10 ** Math.floor(Math.log10(v));
-  for (const m of [1, 2, 2.5, 5, 10]) if (m * p >= v) return m * p;
-  return 10 * p;
-}
-function tooltipLayer(container) {
-  const tip = h('div', { class: 'tip', role: 'tooltip' }); tip.hidden = true;
-  container.append(tip);
-  return {
-    show(x, y, rows, title) {
-      tip.replaceChildren(h('div', {}, h('b', { text: title })), ...rows.map(([color, label, value]) => h('div', {},
-        color ? Object.assign(h('span', { class: 'sw' }), { style: '' }) : null, `${label}: `, h('b', { text: value }))));
-      tip.querySelectorAll('.sw').forEach((s, i) => { s.style.background = rows[i][0]; });
-      tip.style.left = `${x}px`; tip.style.top = `${y}px`; tip.hidden = false;
-    },
-    hide() { tip.hidden = true; },
-  };
-}
 /** Round-topped bar anchored to the baseline. */
-function barPath(x, y, w, hgt, r = 4) {
-  if (hgt <= 0) return '';
-  const rr = Math.min(r, w / 2, hgt);
-  return `M${x},${y + hgt}V${y + rr}Q${x},${y} ${x + rr},${y}H${x + w - rr}Q${x + w},${y} ${x + w},${y + rr}V${y + hgt}Z`;
-}
-function groupedBarChart({ labels, fullLabels, series, height = 230 }) {
-  const W = 640; const H = height; const L = 34; const B = 26; const T = 10; const R = 6;
-  const max = niceMax(Math.max(1, ...series.flatMap((s) => s.values)));
-  const pw = W - L - R; const ph = H - T - B;
-  const gw = pw / labels.length; const bw = Math.min(16, gw * 0.24); const gap = 4;
-  const svg = svgEl('svg', { viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': `${series.map((s) => s.name).join(' and ')} per day` });
-  for (let i = 0; i <= 4; i += 1) {
-    const y = T + ph - (ph * i) / 4;
-    svg.append(svgEl('line', { class: 'gridline', x1: L, x2: W - R, y1: y, y2: y }));
-    svg.append(svgEl('text', { class: 'axis-label', x: L - 8, y: y + 4, 'text-anchor': 'end' }, document.createTextNode(String((max * i) / 4))));
-  }
-  const wrap = h('div', { class: 'chart' }, svg);
-  const tip = tooltipLayer(wrap);
-  labels.forEach((lab, i) => {
-    const cx = L + gw * i + gw / 2;
-    const total = series.length * bw + (series.length - 1) * gap;
-    svg.append(svgEl('text', { class: 'axis-label', x: cx, y: H - 6, 'text-anchor': 'middle' }, document.createTextNode(lab)));
-    series.forEach((s, k) => {
-      const v = s.values[i]; const bh = (v / max) * ph;
-      const x = cx - total / 2 + k * (bw + gap);
-      const show = () => {
-        const r = wrap.getBoundingClientRect(); const sr = svg.getBoundingClientRect();
-        tip.show(((cx) / W) * sr.width + (sr.left - r.left), ((T + ph - bh) / H) * sr.height + (sr.top - r.top),
-          series.map((ss) => [ss.color, ss.name, String(ss.values[i])]), fullLabels?.[i] || lab);
-      };
-      // Hit target covers the whole column height so small bars are easy to hover.
-      const hit = svgEl('rect', { x: x - 2, y: T, width: bw + 4, height: ph, fill: 'transparent', tabindex: 0, 'aria-label': `${fullLabels?.[i] || lab}: ${s.name} ${v}` });
-      hit.addEventListener('pointerenter', show); hit.addEventListener('focus', show);
-      hit.addEventListener('pointerleave', () => tip.hide()); hit.addEventListener('blur', () => tip.hide());
-      if (bh > 0) svg.append(svgEl('path', { class: 'bar', d: barPath(x, T + ph - bh, bw, bh), fill: s.color }));
-      svg.append(hit);
-    });
-  });
-  return wrap;
-}
-function smoothPath(pts) {
-  if (pts.length < 2) return '';
-  let d = `M${pts[0][0]},${pts[0][1]}`;
-  for (let i = 1; i < pts.length; i += 1) {
-    const [x0, y0] = pts[i - 1]; const [x1, y1] = pts[i]; const mx = (x0 + x1) / 2;
-    d += ` C${mx},${y0} ${mx},${y1} ${x1},${y1}`;
-  }
-  return d;
-}
 let gradSeq = 0;
-function areaChart({ labels, fullLabels, values, color, format, height = 230 }) {
-  const W = 640; const H = height; const L = 54; const B = 26; const T = 12; const R = 10;
-  const max = niceMax(Math.max(1, ...values));
-  const pw = W - L - R; const ph = H - T - B;
-  const xs = (i) => L + (labels.length === 1 ? pw / 2 : (pw * i) / (labels.length - 1));
-  const ys = (v) => T + ph - (v / max) * ph;
-  const pts = values.map((v, i) => [xs(i), ys(v)]);
-  const id = `grad${gradSeq += 1}`;
-  const svg = svgEl('svg', { viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': 'Verified revenue per month' },
-    svgEl('defs', {}, svgEl('linearGradient', { id, x1: 0, y1: 0, x2: 0, y2: 1 },
-      svgEl('stop', { offset: '0%', 'stop-color': color, 'stop-opacity': 0.28 }), svgEl('stop', { offset: '100%', 'stop-color': color, 'stop-opacity': 0.02 }))));
-  for (let i = 0; i <= 4; i += 1) {
-    const y = T + ph - (ph * i) / 4;
-    svg.append(svgEl('line', { class: 'gridline', x1: L, x2: W - R, y1: y, y2: y }));
-    svg.append(svgEl('text', { class: 'axis-label', x: L - 8, y: y + 4, 'text-anchor': 'end' }, document.createTextNode(format((max * i) / 4, true))));
-  }
-  labels.forEach((lab, i) => svg.append(svgEl('text', { class: 'axis-label', x: xs(i), y: H - 6, 'text-anchor': 'middle' }, document.createTextNode(lab))));
-  const line = smoothPath(pts);
-  svg.append(svgEl('path', { d: `${line} L${xs(labels.length - 1)},${T + ph} L${xs(0)},${T + ph} Z`, fill: `url(#${id})` }));
-  svg.append(svgEl('path', { d: line, fill: 'none', stroke: color, 'stroke-width': 2.5, 'stroke-linecap': 'round' }));
-  const hair = svgEl('line', { x1: 0, x2: 0, y1: T, y2: T + ph, stroke: '#c5cbd6', 'stroke-width': 1, 'stroke-dasharray': '3 3', visibility: 'hidden' });
-  const dot = svgEl('circle', { r: 5, fill: color, stroke: '#fff', 'stroke-width': 2, visibility: 'hidden' });
-  svg.append(hair, dot);
-  const wrap = h('div', { class: 'chart' }, svg);
-  const tip = tooltipLayer(wrap);
-  const overlay = svgEl('rect', { x: L, y: T, width: pw, height: ph, fill: 'transparent', tabindex: 0, 'aria-label': 'Revenue by month; use arrow keys' });
-  let cur = labels.length - 1;
-  const showAt = (i) => {
-    cur = Math.max(0, Math.min(labels.length - 1, i));
-    const [x, y] = pts[cur];
-    for (const el of [hair]) { el.setAttribute('x1', x); el.setAttribute('x2', x); el.setAttribute('visibility', 'visible'); }
-    dot.setAttribute('cx', x); dot.setAttribute('cy', y); dot.setAttribute('visibility', 'visible');
-    const r = wrap.getBoundingClientRect(); const sr = svg.getBoundingClientRect();
-    tip.show((x / W) * sr.width + (sr.left - r.left), (y / H) * sr.height + (sr.top - r.top), [[color, 'Revenue', format(values[cur])]], fullLabels?.[cur] || labels[cur]);
-  };
-  const hide = () => { hair.setAttribute('visibility', 'hidden'); dot.setAttribute('visibility', 'hidden'); tip.hide(); };
-  overlay.addEventListener('pointermove', (e) => {
-    const sr = svg.getBoundingClientRect(); const x = ((e.clientX - sr.left) / sr.width) * W;
-    let best = 0; pts.forEach(([px], i) => { if (Math.abs(px - x) < Math.abs(pts[best][0] - x)) best = i; });
-    showAt(best);
-  });
-  overlay.addEventListener('pointerleave', hide); overlay.addEventListener('blur', hide);
-  overlay.addEventListener('focus', () => showAt(cur));
-  overlay.addEventListener('keydown', (e) => { if (e.key === 'ArrowLeft') showAt(cur - 1); if (e.key === 'ArrowRight') showAt(cur + 1); });
-  svg.append(overlay);
-  return wrap;
-}
 /** Card with a chart and a "view as table" toggle for accessibility. */
-function chartCard({ title, cls = '', legend, chart, tableCols, tableRows, extraHead }) {
-  const tbl = table(tableCols, tableRows); tbl.hidden = true;
-  const toggle = h('button', { class: 'btn-link', type: 'button' }, 'View as table');
-  toggle.addEventListener('click', () => { const showTable = tbl.hidden; tbl.hidden = !showTable; chart.hidden = showTable; toggle.textContent = showTable ? 'View as chart' : 'View as table'; });
-  return h('section', { class: `card ${cls}` },
-    h('div', { class: 'sec-head' }, h('h2', { text: title }), extraHead || null, legend || null),
-    chart, tbl, h('div', { class: 'chart-tools' }, toggle));
-}
-
 // ===========================================================================
 // Shell, navigation, routing
 // ===========================================================================
 const NAV = [
-  ['Sales', [['/admin', 'Overview', 'dashboard.view', 'home'], ['/admin/orders', 'Orders', 'customers.view', 'orders'], ['/admin/payments', 'Payment Verification', 'payments.verify', 'payments'], ['/admin/customers', 'Customers', 'customers.view', 'customers']]],
-  ['Access', [['/admin/invitations', 'Access Invitations', 'customers.view', 'invitations'], ['/admin/devices', 'Registered Devices', 'customers.view', 'devices'], ['/admin/licenses', 'Reading Licenses', 'customers.view', 'licenses']]],
-  ['Books', [['/admin/books', 'Books', 'books.manage', 'books'], ['/admin/editions', 'Book Editions', 'books.manage', 'editions']]],
-  ['Monitoring', [['/admin/activity', 'Reading Activity', 'security.view', 'activity'], ['/admin/security', 'Security Events', 'security.view', 'security'], ['/admin/audit', 'Audit Logs', 'audit.view', 'audit']]],
-  ['Store', [['/admin/whatsapp', 'Download Page & WhatsApp', 'content.manage', 'whatsapp']]],
-  ['System', [['/admin/admins', 'Administrators', 'admins.manage', 'admins'], ['/admin/settings', 'System Settings', 'settings.manage', 'settings'], ['/admin/account', 'My Account', null, 'account']]],
+  ['/admin/customers', 'Customers', 'customers.view', 'customers'],
+  ['/admin/editions', 'Book Editions', 'books.manage', 'editions'],
+  ['/admin/account', 'My Account', null, 'account'],
 ];
 
 function go(path) { history.pushState({}, '', path); route(); }
@@ -347,27 +214,18 @@ document.addEventListener('click', (e) => {
   if (!e.target.closest('.menu, .avatar')) document.querySelector('.menu')?.remove();
 });
 
-let mainEl = null; let contentEl = null; let titleEl = null; let bellDot = null;
-function setAlerts(n) {
-  if (!bellDot) return;
-  bellDot.hidden = !n; bellDot.textContent = n > 99 ? '99+' : String(n);
-}
+let mainEl = null; let contentEl = null; let titleEl = null;
 function shell() {
   const side = h('aside', { class: 'side' },
     h('div', { class: 'brand' },
       h('a', { class: 'logo', href: '/admin', 'data-nav': true }, h('span', { class: 'mark' }, icon('book', 18)), 'BookVault'),
       btn('Menu', () => side.classList.toggle('open'), 'menu-btn')),
-    h('nav', { 'aria-label': 'Dashboard' }, NAV.map(([grp, items]) => {
-      const visible = items.filter(([, , p]) => !p || can(p));
-      return visible.length ? [h('div', { class: 'grp', text: grp }), visible.map(([href, label, , ic]) => h('a', { href, 'data-nav': true }, icon(ic), h('span', { text: label })))] : [];
-    }), h('p', { class: 'credit' }, 'Icons: ', h('a', { href: 'https://www.flaticon.com/uicons', target: '_blank', rel: 'noopener noreferrer' }, 'UIcons by Flaticon'))));
+    h('nav', { 'aria-label': 'Dashboard' }, NAV.filter(([, , p]) => !p || can(p)).map(([href, label, , ic]) => h('a', { href, 'data-nav': true }, icon(ic), h('span', { text: label }))),
+      h('p', { class: 'credit' }, 'Icons: ', h('a', { href: 'https://www.flaticon.com/uicons', target: '_blank', rel: 'noopener noreferrer' }, 'UIcons by Flaticon'))));
   titleEl = h('h1');
   const q = h('input', { type: 'search', placeholder: 'Search customers by name or phone', 'aria-label': 'Search customers' });
   const search = h('form', { class: 'search', role: 'search' }, icon('search', 18), q);
   search.addEventListener('submit', (e) => { e.preventDefault(); go(`/admin/customers?q=${encodeURIComponent(q.value.trim())}`); });
-  bellDot = h('span', { class: 'dot' }); bellDot.hidden = true;
-  const bell = can('security.view') ? h('a', { class: 'icon-btn', href: '/admin/security?open=true', 'data-nav': true, 'aria-label': 'Open security events', title: 'Security alerts' }, icon('bell'), bellDot) : null;
-  const settingsBtn = can('settings.manage') ? h('a', { class: 'icon-btn', href: '/admin/settings', 'data-nav': true, 'aria-label': 'System settings', title: 'System settings' }, icon('settings')) : null;
   const avatar = h('button', { class: 'avatar', type: 'button', 'aria-label': 'Account menu', 'aria-haspopup': 'menu', text: initials(me.name) });
   avatar.addEventListener('click', () => {
     const open = document.querySelector('.menu');
@@ -378,9 +236,8 @@ function shell() {
       h('button', { type: 'button', role: 'menuitem', onclick: logout }, 'Sign out')));
   });
   contentEl = h('div', { class: 'content', id: 'content' });
-  mainEl = h('main', { class: 'main', id: 'main' }, h('header', { class: 'topbar' }, titleEl, search, settingsBtn, bell, avatar), contentEl);
+  mainEl = h('main', { class: 'main', id: 'main' }, h('header', { class: 'topbar' }, titleEl, search, avatar), contentEl);
   root.replaceChildren(h('div', { class: 'shell' }, side, mainEl));
-  if (can('security.view')) api('GET', '/api/admin/security-events?open=true&limit=100').then((r) => setAlerts(r.events.length)).catch(() => {});
 }
 
 function page(title, ...content) {
@@ -407,26 +264,12 @@ async function route() {
   const m = (re) => p.match(re);
   let r;
   try {
-    if (p === '/admin') return await viewOverview();
-    if (p === '/admin/books') return await viewBooks();
-    if ((r = m(/^\/admin\/books\/([0-9a-f-]{36})$/))) return await viewBook(r[1]);
+    if (p === '/admin') return go('/admin/customers');
     if (p === '/admin/editions') return await viewEditions();
     if (p === '/admin/customers') return await viewCustomers(q);
     if ((r = m(/^\/admin\/customers\/([0-9a-f-]{36})$/))) return await viewCustomer(r[1]);
-    if (p === '/admin/orders') return await viewOrders(q);
     if (p === '/admin/orders/new') return await viewNewOrder();
     if ((r = m(/^\/admin\/orders\/([0-9a-f-]{36})$/))) return await viewOrder(r[1]);
-    if (p === '/admin/payments') return await viewOrders(new URLSearchParams({ status: 'PENDING_PAYMENT', ...Object.fromEntries(q) }), 'Payment Verification');
-    if (p === '/admin/invitations') return await viewInvitations(q);
-    if (p === '/admin/devices') return await viewDevices(q);
-    if (p === '/admin/licenses') return await viewLicenses(q);
-    if (p === '/admin/activity') return await viewActivity(q);
-    if (p === '/admin/security') return await viewSecurity(q);
-    if (p === '/admin/audit') return await viewAudit(q);
-    if (p === '/admin/website') return go('/admin/whatsapp');
-    if (p === '/admin/whatsapp') return await viewWhatsapp();
-    if (p === '/admin/admins') return await viewAdmins();
-    if (p === '/admin/settings') return await viewSettings();
     if (p === '/admin/account') return viewAccount();
     page('Not found', h('p', { text: 'This page does not exist.' }));
   } catch (e) {
@@ -489,191 +332,9 @@ async function logout() {
 // ===========================================================================
 // Overview
 // ===========================================================================
-async function viewOverview() {
-  const d = await api('GET', '/api/admin/overview');
-  const m = d.metrics;
-  setAlerts(m.open_security_events);
-  const cur = d.currency;
-  const rev = d.revenue.find((r) => r.currency === cur) || { verified: '0', pending: '0', pending_count: 0 };
-  const money = (v) => fmtMoney(v || 0, cur);
-  const compact = (v) => { try { return new Intl.NumberFormat(undefined, { notation: 'compact', maximumFractionDigits: 1 }).format(v); } catch { return String(v); } };
-
-  // --- Revenue cards -------------------------------------------------------
-  const cards = h('section', { class: 'span2' },
-    h('div', { class: 'sec-head' }, h('h2', { text: 'Sales' }), link('/admin/orders', 'See all')),
-    h('div', { class: 'paycards' },
-      h('a', { class: 'paycard hot', href: '/admin/orders?status=PAID', 'data-nav': true },
-        h('div', {}, h('div', { class: 'k', text: 'Verified revenue' }), h('div', { class: 'v', text: money(rev.verified) })),
-        h('div', { class: 'row' }, h('div', {}, 'Paid orders', h('strong', { text: String(m.verified_payments) })), h('div', {}, 'Active readers', h('strong', { text: String(m.active_licenses) }))),
-        h('div', { class: 'foot' }, h('span', { text: `${m.total_books} book${m.total_books === 1 ? '' : 's'} on sale` }), icon('arrow'))),
-      h('a', { class: 'paycard', href: '/admin/payments', 'data-nav': true },
-        h('div', {}, h('div', { class: 'k', text: 'Awaiting verification' }), h('div', { class: 'v', text: money(rev.pending) })),
-        h('div', { class: 'row' }, h('div', {}, 'Pending payments', h('strong', { text: String(m.pending_payments) })), h('div', {}, 'Open invitations', h('strong', { text: String(m.active_invitations) }))),
-        h('div', { class: 'foot' }, h('span', { text: m.pending_payments ? 'Verify payments' : 'All caught up' }), icon('arrow')))));
-
-  // --- Recent transactions -------------------------------------------------
-  const txIcon = (s) => (s === 'VERIFIED' ? h('span', { class: 'ico ok' }, icon('check')) : s === 'REJECTED' ? h('span', { class: 'ico bad' }, icon('x')) : h('span', { class: 'ico' }, icon('clock')));
-  const recent = h('section', { class: 'card' },
-    h('div', { class: 'sec-head' }, h('h2', { text: 'Recent Transactions' }), link('/admin/orders', 'See all')),
-    d.recentPayments.length ? h('ul', { class: 'tx' }, d.recentPayments.map((p) => h('li', {},
-      txIcon(p.status),
-      h('div', { class: 't' }, h('strong', {}, link(`/admin/orders/${p.order_id}`, p.full_name)), h('span', { text: `${p.method} · ${new Date(p.at).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}` })),
-      h('div', { class: `amt${p.status === 'VERIFIED' ? ' plus' : ''}`, text: `${p.status === 'VERIFIED' ? '+' : ''}${fmtMoney(p.amount, p.currency)}` }))))
-      : h('p', { class: 'chart-empty', text: 'No payments yet.' }));
-
-  // --- Weekly activity (grouped bars) --------------------------------------
-  const days = d.weekly.map((w) => new Date(`${w.day}T00:00:00`));
-  const series = [
-    { name: 'New orders', color: SERIES[0], values: d.weekly.map((w) => w.orders) },
-    { name: 'Payments verified', color: SERIES[1], values: d.weekly.map((w) => w.verified) },
-  ];
-  const legend = h('div', { class: 'legend' }, series.map((s) => { const i = h('i'); i.style.background = s.color; return h('span', {}, i, s.name); }));
-  const weekly = chartCard({
-    title: 'Weekly Activity', cls: 'span2', legend,
-    chart: groupedBarChart({ labels: days.map((x) => x.toLocaleDateString(undefined, { weekday: 'short' })), fullLabels: days.map((x) => x.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'short' })), series }),
-    tableCols: [{ label: 'Day', render: (r) => r.label }, { label: 'New orders', key: 'orders' }, { label: 'Payments verified', key: 'verified' }, { label: 'Activations', key: 'activations' }],
-    tableRows: d.weekly.map((w, i) => ({ ...w, label: days[i].toLocaleDateString() })),
-  });
-
-  // --- Licences by status (segmented bar, status colours + glyph + label) ----
-  const ST = {
-    ACTIVE: ['Active', 'var(--st-good)', 'check'], PENDING_ACTIVATION: ['Not yet activated', 'var(--st-warning)', 'clock'],
-    SUSPENDED: ['Suspended', 'var(--st-serious)', 'exclamation'], REVOKED: ['Revoked', 'var(--st-critical)', 'cross'], EXPIRED: ['Expired', 'var(--st-neutral)', 'minus'],
-  };
-  const counts = Object.keys(ST).map((k) => [k, d.licenseStatus.find((x) => x.status === k)?.n || 0]);
-  const totalLic = counts.reduce((a, [, n]) => a + n, 0);
-  const seg = h('div', { class: 'segbar', role: 'img', 'aria-label': counts.map(([k, n]) => `${ST[k][0]} ${n}`).join(', ') });
-  for (const [k, n] of counts) {
-    if (!n) continue;
-    const part = h('div', { title: `${ST[k][0]}: ${n}` });
-    part.style.flex = String(n); part.style.background = ST[k][1];
-    seg.append(part);
-  }
-  const licences = h('section', { class: 'card' },
-    h('div', { class: 'sec-head' }, h('h2', { text: 'Reading Licences' }), link('/admin/licenses', 'Manage')),
-    totalLic ? [seg, h('ul', { class: 'status-list' }, counts.map(([k, n]) => {
-      const g = h('span', { class: 'glyph', 'aria-hidden': 'true' }, h('i', { class: `fi fi-rr-${ST[k][2]}` })); g.style.background = ST[k][1];
-      return h('li', {}, g, h('span', { text: ST[k][0] }), h('b', { text: `${n} · ${Math.round((n / totalLic) * 100)}%` }));
-    }))] : h('p', { class: 'chart-empty', text: 'No licences yet. They appear when a payment is verified.' }));
-
-  // --- Quick actions (recent customers) ------------------------------------
-  const quick = h('section', { class: 'card' },
-    h('div', { class: 'sec-head' }, h('h2', { text: 'Quick Access' }), link('/admin/customers', 'All customers')),
-    d.recentCustomers.length ? h('div', { class: 'people' }, d.recentCustomers.map((c) => h('a', { class: 'person', href: `/admin/customers/${c.id}`, 'data-nav': true },
-      h('span', { class: 'avatar lg', 'aria-hidden': 'true', text: initials(c.full_name) }), h('span', { class: 'n', text: c.full_name }), h('span', { class: 'r', text: c.status.replace(/_/g, ' ').toLowerCase() }))))
-      : h('p', { class: 'hint', text: 'Customers you register appear here.' }),
-    can('customers.manage') ? h('div', { class: 'quick-row' }, h('span', { class: 'pill', text: 'New sale on WhatsApp?' }),
-      h('a', { class: 'btn btn-primary', href: '/admin/orders/new', 'data-nav': true }, icon('plus', 18), 'Register order')) : null);
-
-  // --- Revenue history (area, single series) --------------------------------
-  const months = d.monthly.map((x) => new Date(`${x.month}-01T00:00:00`));
-  const revenueVals = d.monthly.map((x) => Number(x.amount));
-  const history = chartCard({
-    title: 'Revenue History', cls: 'span2',
-    extraHead: h('span', { class: 'hint', text: `Verified payments, ${cur}` }),
-    chart: areaChart({
-      labels: months.map((x) => x.toLocaleDateString(undefined, { month: 'short' })),
-      fullLabels: months.map((x) => x.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })),
-      values: revenueVals, color: SERIES[0], format: (v, axis) => (axis ? compact(v) : money(v)),
-    }),
-    tableCols: [{ label: 'Month', key: 'label' }, { label: `Revenue (${cur})`, key: 'amount' }],
-    tableRows: d.monthly.map((x, i) => ({ label: months[i].toLocaleDateString(undefined, { month: 'long', year: 'numeric' }), amount: money(x.amount) })),
-  });
-
-  // --- Totals and recent activity --------------------------------------------
-  const tiles = [
-    ['Registered customers', m.registered_customers, '/admin/customers'], ['Activated customers', m.activated_customers, '/admin/customers?status=ACTIVE'],
-    ['Total orders', m.total_orders, '/admin/orders'], ['Active invitations', m.active_invitations, '/admin/invitations?status=PENDING'],
-    ['Suspended accounts', m.suspended_accounts, '/admin/customers?status=SUSPENDED'], ['Revoked access', m.revoked_access, '/admin/licenses?status=REVOKED'],
-    ['Open security events', m.open_security_events, '/admin/security?open=true'],
-  ];
-  const totals = h('section', { class: 'span3' }, h('div', { class: 'metrics' },
-    tiles.map(([k, v, href]) => h('a', { class: 'metric', href, 'data-nav': true }, h('div', { class: 'v', text: String(v) }), h('div', { class: 'k', text: k })))));
-
-  const lists = h('div', { class: 'grid2 span3' },
-    h('section', { class: 'card' }, h('div', { class: 'sec-head' }, h('h2', { text: 'Security Alerts' }), link('/admin/security', 'See all')),
-      table([{ label: 'Event', render: (r) => r.event_type.replace(/_/g, ' ').toLowerCase() }, { label: 'Severity', render: (r) => badge(r.severity) }, { label: 'Customer', key: 'customer' }, { label: 'When', render: (r) => fmtDate(r.created_at) }], d.recentSecurity, 'No security events.')),
-    h('section', { class: 'card' }, h('div', { class: 'sec-head' }, h('h2', { text: 'Customer Activity' }), link('/admin/activity', 'See all')),
-      table([{ label: 'Activity', render: (r) => r.event_type.replace(/_/g, ' ').toLowerCase() }, { label: 'Customer', key: 'customer' }, { label: 'Book', key: 'book' }, { label: 'When', render: (r) => fmtDate(r.created_at) }], d.recentActivity, 'No activity yet.')));
-
-  page('Overview', h('div', { class: 'dash' }, cards, recent, weekly, licences, quick, history, totals, lists));
-}
-
 // ===========================================================================
 // Books and editions
 // ===========================================================================
-const bookFields = (currency = 'TZS') => [
-  { name: 'title', label: 'Title', required: true, max: 300 },
-  { name: 'subtitle', label: 'Subtitle', max: 300 },
-  { name: 'author', label: 'Author', required: true, max: 200 },
-  { name: 'priceAmount', label: 'Price', required: true, placeholder: '15000', hint: 'Numbers only, e.g. 15000' },
-  { name: 'currency', label: 'Currency', required: true, default: currency, max: 3, hint: 'ISO code: TZS for Tanzanian shillings' },
-  { name: 'availability', label: 'Availability', type: 'select', options: [['AVAILABLE', 'Available'], ['COMING_SOON', 'Coming soon'], ['UNAVAILABLE', 'Unavailable']] },
-  { name: 'preferredFormat', label: 'Preferred reading format', type: 'select', options: [['EPUB', 'EPUB (reflowable text)'], ['PDF', 'PDF (page images)']] },
-  { name: 'maxDevices', label: 'Devices per purchase', type: 'number', min: 1, maxv: 10, default: 1, hint: 'Applies to new licenses' },
-  { name: 'licenseDurationDays', label: 'License duration (days)', type: 'number', min: 1, nullable: true, hint: 'Leave empty for no expiry' },
-  { name: 'description', label: 'Description', type: 'textarea', full: true, rows: 6, max: 10000 },
-];
-
-async function viewBooks() {
-  const { books } = await api('GET', '/api/admin/books');
-  page('Books',
-    h('section', { class: 'card' }, h('h2', { text: 'Create a book' }), buildForm(bookFields(), {}, {
-      submit: 'Create book',
-      onSubmit: async (v) => { const r = await api('POST', '/api/admin/books', { ...v, currency: v.currency.toUpperCase() }); toast('Book created'); go(`/admin/books/${r.book.id}`); },
-    }).form),
-    table([
-      { label: 'Book', render: (b) => h('div', {}, link(`/admin/books/${b.id}`, b.title), h('div', { class: 'sub', text: b.author })) },
-      { label: 'Price', render: (b) => fmtMoney(b.price_amount, b.currency) },
-      { label: 'Published', render: (b) => badge(b.published ? 'ACTIVE' : 'PENDING') },
-      { label: 'Current edition', render: (b) => (b.current_version ? h('span', {}, `v${b.current_version} ${b.current_format} `, badge(b.current_status)) : badge('PENDING')) },
-      { label: 'Active readers', key: 'active_licenses' },
-    ], books, 'No books yet. Create one above.'));
-}
-
-async function viewBook(id) {
-  const { book, editions } = await api('GET', `/api/admin/books/${id}`);
-  const edit = buildForm(bookFields(book.currency), {
-    title: book.title, subtitle: book.subtitle, author: book.author, priceAmount: book.price_amount, currency: book.currency, availability: book.availability,
-    preferredFormat: book.preferred_format, maxDevices: book.max_devices, licenseDurationDays: book.license_duration_days, description: book.description,
-  }, { submit: 'Save changes', onSubmit: (v) => act(() => api('PATCH', `/api/admin/books/${id}`, { ...v, currency: v.currency.toUpperCase() }), { ok: 'Saved' }) });
-
-  const cover = buildForm([{ name: 'file', label: 'Cover image (PNG, JPEG or WebP, max 5 MB)', type: 'file', accept: 'image/png,image/jpeg,image/webp', required: true }], {}, {
-    submit: 'Upload cover', columns: false,
-    onSubmit: async (v) => { const fd = new FormData(); fd.append('file', v.file); await act(() => api('POST', `/api/admin/books/${id}/cover`, fd), { ok: 'Cover uploaded' }); },
-  });
-  const upload = buildForm([
-    { name: 'file', label: 'Book file (EPUB or PDF)', type: 'file', accept: '.epub,.pdf,application/epub+zip,application/pdf', required: true, full: true },
-    { name: 'label', label: 'Edition label', placeholder: 'e.g. Second edition' },
-    { name: 'makeCurrent', label: 'Make this the edition customers read', type: 'checkbox', default: true },
-  ], {}, {
-    submit: 'Upload and process',
-    onSubmit: async (v) => {
-      const fd = new FormData(); fd.append('file', v.file); fd.append('label', v.label || ''); fd.append('makeCurrent', String(v.makeCurrent));
-      toast('Uploading and processing… this can take a minute for large files.');
-      await act(() => api('POST', `/api/admin/books/${id}/upload`, fd), { ok: 'Edition processed and stored securely' });
-    },
-  });
-
-  page(book.title,
-    h('p', {}, link('/admin/books', '← All books')),
-    h('div', { class: 'row-actions' },
-      book.published
-        ? btn('Unpublish', () => act(() => api('POST', `/api/admin/books/${id}/unpublish`), { ok: 'Unpublished' }), 'btn btn-small btn-danger')
-        : btn('Publish', () => act(() => api('POST', `/api/admin/books/${id}/publish`), { ok: 'Published' }), 'btn btn-small btn-primary'),
-      badge(book.published ? 'ACTIVE' : 'PENDING')),
-    h('div', { class: 'grid2' },
-      h('section', { class: 'card' }, h('h2', { text: 'Details' }), edit.form),
-      h('div', {},
-        h('section', { class: 'card' }, h('h2', { text: 'Cover' }),
-          book.has_cover && book.published ? h('img', { src: `/media/covers/${id}?v=${Date.now()}`, alt: 'Current cover' }) : h('p', { class: 'hint', text: book.has_cover ? 'Cover uploaded (visible publicly once published).' : 'No cover yet.' }),
-          cover.form),
-        h('section', { class: 'card' }, h('h2', { text: 'Upload a new edition' }),
-          h('p', { class: 'hint', text: 'Files are checked by content type, scanned for malware when a scanner is configured, encrypted, and stored privately. Existing customers keep their access when you replace an edition.' }),
-          upload.form))),
-    h('section', { class: 'card', id: 'editions' }, h('h2', { text: 'Editions' }), editionsTable(id, book, editions)));
-}
-
 function editionsTable(bookId, book, editions) {
   return table([
     { label: 'Version', render: (e) => h('div', {}, `v${e.version}`, h('div', { class: 'sub', text: e.label })) },
@@ -693,11 +354,37 @@ async function viewEditions() {
   const { books } = await api('GET', '/api/admin/books');
   const sections = [];
   for (const b of books) {
-    const d = await api('GET', `/api/admin/books/${b.id}`);
-    sections.push(h('section', { class: 'card' }, h('h2', {}, link(`/admin/books/${b.id}`, b.title)), editionsTable(b.id, d.book, d.editions)));
+    const id = b.id;
+    const d = await api('GET', `/api/admin/books/${id}`);
+    const cover = buildForm([{ name: 'file', label: 'Cover image (PNG, JPEG or WebP, max 5 MB)', type: 'file', accept: 'image/png,image/jpeg,image/webp', required: true }], {}, {
+      submit: 'Upload cover', columns: false,
+      onSubmit: async (v) => { const fd = new FormData(); fd.append('file', v.file); await act(() => api('POST', `/api/admin/books/${id}/cover`, fd), { ok: 'Cover uploaded. Upload the book file again so it becomes the front cover.' }); },
+    });
+    const upload = buildForm([
+      { name: 'file', label: 'Book file (PDF or EPUB)', type: 'file', accept: '.epub,.pdf,application/epub+zip,application/pdf', required: true, full: true },
+      { name: 'label', label: 'Edition label', placeholder: 'e.g. Second edition' },
+      { name: 'makeCurrent', label: 'Make this the edition customers read', type: 'checkbox', default: true },
+    ], {}, {
+      submit: 'Upload and process',
+      onSubmit: async (v) => {
+        const fd = new FormData(); fd.append('file', v.file); fd.append('label', v.label || ''); fd.append('makeCurrent', String(v.makeCurrent));
+        toast('Uploading and processing… this can take a minute for large files.');
+        await act(() => api('POST', `/api/admin/books/${id}/upload`, fd), { ok: 'Edition processed and stored securely' });
+      },
+    });
+    sections.push(h('section', { class: 'card' },
+      h('h2', { text: d.book.title }),
+      h('p', { class: 'hint', text: `${d.book.author} · ${fmtMoney(d.book.price_amount, d.book.currency)}${d.book.published ? '' : ' · not published'}` }),
+      editionsTable(id, d.book, d.editions)),
+    h('div', { class: 'grid2' },
+      h('section', { class: 'card' }, h('h2', { text: 'Upload a new edition' }),
+        h('p', { class: 'hint', text: 'The file is checked, encrypted and stored privately. The cover image becomes the full-page front cover. Customers always read the current edition and keep their access when you replace it.' }),
+        upload.form),
+      h('section', { class: 'card' }, h('h2', { text: 'Cover' }),
+        d.book.has_cover && d.book.published ? h('img', { src: `/media/covers/${id}?v=${Date.now()}`, alt: 'Current cover', class: 'cover-preview' }) : h('p', { class: 'hint', text: d.book.has_cover ? 'Cover uploaded.' : 'No cover yet.' }),
+        cover.form)));
   }
-  page('Book Editions', h('p', { class: 'hint', text: 'Upload new editions from each book page. Customers always read the current edition; their access is tied to the book, not to an edition.' }),
-    sections.length ? sections : h('p', { text: 'No books yet.' }));
+  page('Book Editions', sections.length ? sections : h('div', { class: 'card' }, h('p', { text: 'No book yet. Run “npm run seed:dev” to add the book.' })));
 }
 
 // ===========================================================================
@@ -743,6 +430,56 @@ async function viewCustomers(q) {
     pager(d, (p) => setQuery({ page: p })));
 }
 
+function invitationsTable(rows) {
+  return table([
+    { label: 'Customer', render: (i) => h('div', {}, link(`/admin/customers/${i.customer_id}`, i.full_name), h('div', { class: 'sub', text: i.phone_e164 || '' })) },
+    { label: 'Book', key: 'book_title' },
+    { label: 'Link', render: (i) => h('span', { class: 'mono', text: `…/access/${i.token_hint}…` }) },
+    { label: 'Status', render: (i) => badge(i.status) },
+    { label: 'Expires', render: (i) => fmtDate(i.expires_at) },
+    { label: 'Opened / used', render: (i) => h('div', {}, h('div', { class: 'sub', text: `opened ${fmtDate(i.opened_at)}` }), h('div', { class: 'sub', text: `used ${fmtDate(i.consumed_at)}` })) },
+    { label: '', render: (i) => (can('invitations.manage') ? h('div', { class: 'actions' },
+      i.status === 'PENDING' ? btn('Revoke', () => act(() => api('POST', `/api/admin/invitations/${i.id}/revoke`), { ok: 'Invitation revoked' }), 'btn btn-small btn-danger') : null,
+      btn(i.status === 'CONSUMED' ? 'New link' : 'Reissue', () => generateInvite(i.license_id, i.id))) : '') },
+  ], rows, 'No invitations.');
+}
+
+function devicesTable(rows) {
+  return table([
+    { label: 'Customer', render: (d) => link(`/admin/customers/${d.customer_id}`, d.full_name) },
+    { label: 'Book(s)', render: (d) => d.books || '—' },
+    { label: 'Device', render: (d) => h('div', {}, `${d.browser} on ${d.os}`, h('div', { class: 'sub', text: d.device_category })) },
+    { label: 'Status', render: (d) => h('div', {}, badge(d.status), d.revoked_reason ? h('div', { class: 'sub', text: d.revoked_reason }) : null, d.transition_until ? h('div', { class: 'sub', text: `works until ${fmtDate(d.transition_until)}` }) : null) },
+    { label: 'Registered', render: (d) => fmtDate(d.registered_at) },
+    { label: 'App installed', render: (d) => (d.installed_at ? fmtDate(d.installed_at) : h('span', { class: 'sub', text: 'Not yet' })) },
+    { label: 'Last activity', render: (d) => fmtDate(d.last_seen_at) },
+    { label: 'Sessions', render: (d) => String(d.active_sessions ?? 0) },
+    { label: '', render: (d) => (can('access.manage') && ['ACTIVE', 'PENDING_APPROVAL'].includes(d.status)
+      ? btn('Revoke device', async () => { const v = await ask('Revoke device', 'This browser stops working immediately. The customer can register another device by signing in.', [{ name: 'reason', label: 'Reason' }], 'Revoke device', true); if (v) act(() => api('POST', `/api/admin/devices/${d.id}/revoke`, v.reason ? v : {}), { ok: 'Device revoked' }); }, 'btn btn-small btn-danger') : '') },
+  ], rows, 'No devices.');
+}
+
+function licensesTable(rows) {
+  const mng = can('access.manage');
+  return table([
+    { label: 'Customer', render: (l) => (l.full_name ? link(`/admin/customers/${l.customer_id}`, l.full_name) : '—') },
+    { label: 'Book', key: 'book_title' },
+    { label: 'Watermark ref', render: (l) => h('span', { class: 'mono', text: l.trace_code || '—', title: 'Printed on every page this buyer views' }) },
+    { label: 'Order', render: (l) => (l.order_reference ? link(`/admin/orders/${l.order_id}`, l.order_reference) : link(`/admin/orders/${l.order_id}`, 'Open order')) },
+    { label: 'Status', render: (l) => h('div', {}, badge(l.status), l.status_reason ? h('div', { class: 'sub', text: l.status_reason }) : null) },
+    { label: 'Devices', render: (l) => `${l.active_devices ?? '—'} / ${l.max_devices}` },
+    { label: 'Activated', render: (l) => fmtDate(l.activated_at) },
+    { label: 'Expires', render: (l) => (l.expires_at ? fmtDate(l.expires_at) : 'Never') },
+    { label: '', render: (l) => h('div', { class: 'actions' },
+      ['PENDING_ACTIVATION', 'ACTIVE'].includes(l.status) && can('invitations.manage') ? btn(l.status === 'ACTIVE' ? 'New link' : 'Access link', () => generateInvite(l.id), 'btn btn-small btn-primary') : null,
+      mng && l.status === 'ACTIVE' ? btn('Suspend', async () => { const v = await ask('Suspend license', 'Reading stops on the next request until reactivated.', [{ name: 'reason', label: 'Reason' }], 'Suspend', true); if (v) act(() => api('POST', `/api/admin/licenses/${l.id}/suspend`, v), { ok: 'Suspended' }); }) : null,
+      mng && l.status === 'SUSPENDED' ? btn('Reactivate', () => act(() => api('POST', `/api/admin/licenses/${l.id}/reactivate`), { ok: 'Reactivated' })) : null,
+      mng && ['ACTIVE', 'EXPIRED', 'SUSPENDED'].includes(l.status) && l.activated_at ? btn('Renew', async () => { const v = await ask('Renew license', 'Extend access from today (or from the current expiry if later).', [{ name: 'days', label: 'Days (empty = no expiry)', type: 'number', min: 1, nullable: true }], 'Renew'); if (v) act(() => api('POST', `/api/admin/licenses/${l.id}/renew`, v), { ok: 'Renewed' }); }) : null,
+      mng && l.status !== 'REVOKED' ? btn('Devices allowed', async () => { const v = await ask('Devices allowed', 'How many browsers or devices may read this purchase at the same time.', [{ name: 'maxDevices', label: 'Devices', type: 'number', min: 1, maxv: 10, default: l.max_devices, required: true }], 'Save'); if (v) act(() => api('PATCH', `/api/admin/licenses/${l.id}`, v), { ok: 'Updated' }); }) : null,
+      mng && l.status !== 'REVOKED' ? btn('Revoke', async () => { const v = await ask('Revoke license', 'Access to this book ends permanently for this purchase.', [{ name: 'reason', label: 'Reason', required: true }], 'Revoke', true); if (v) act(() => api('POST', `/api/admin/licenses/${l.id}/revoke`, v), { ok: 'License revoked' }); }, 'btn btn-small btn-danger') : null) },
+  ], rows, 'No licenses.');
+}
+
 async function viewCustomer(id) {
   const d = await api('GET', `/api/admin/customers/${id}`);
   const c = d.customer;
@@ -784,22 +521,6 @@ async function viewCustomer(id) {
 // ===========================================================================
 // Orders and payments
 // ===========================================================================
-async function viewOrders(q, title = 'Orders') {
-  const d = await api('GET', `/api/admin/orders?${q}`);
-  page(title,
-    can('customers.manage') ? h('p', {}, link('/admin/orders/new', '+ Register a customer and order')) : null,
-    title === 'Payment Verification' ? h('p', { class: 'hint', text: 'Orders waiting for you to confirm the payment. Open an order to check the reference and verify or reject it.' }) : null,
-    filterBar(q, [{ name: 'q', label: 'Search reference, name or phone' }, { name: 'status', label: 'All statuses', options: [['PENDING_PAYMENT', 'Pending payment'], ['PAID', 'Paid'], ['REJECTED', 'Rejected'], ['CANCELLED', 'Cancelled']] }]),
-    table([
-      { label: 'Order', render: (o) => h('div', {}, link(`/admin/orders/${o.id}`, o.reference), h('div', { class: 'sub', text: fmtDate(o.created_at) })) },
-      { label: 'Customer', render: (o) => h('div', {}, link(`/admin/customers/${o.customer_id}`, o.full_name), h('div', { class: 'sub', text: o.phone_e164 })) },
-      { label: 'Books', key: 'books' }, { label: 'Amount', render: (o) => fmtMoney(o.total_amount, o.currency) },
-      { label: 'Payment', key: 'payment' }, { label: 'Status', render: (o) => badge(o.status) },
-      { label: '', render: (o) => (o.status === 'PENDING_PAYMENT' && can('payments.verify') ? link(`/admin/orders/${o.id}`, 'Verify →') : '') },
-    ], d.orders, 'No orders.'),
-    pager(d, (p) => setQuery({ page: p })));
-}
-
 async function viewNewOrder() {
   const { books } = await api('GET', '/api/admin/books-options');
   const fields = [
@@ -826,7 +547,7 @@ async function viewNewOrder() {
       go(`/admin/orders/${r.orderId}`);
     },
   });
-  page('Register customer and order', h('p', {}, link('/admin/orders', '← Orders')), h('section', { class: 'card' }, form));
+  page('Register customer and order', h('p', {}, link('/admin/customers', '← Customers')), h('section', { class: 'card' }, form));
 }
 
 async function viewOrder(id) {
@@ -848,7 +569,7 @@ async function viewOrder(id) {
       }, 'btn btn-small btn-danger')));
   }
   page(`Order ${o.reference}`,
-    h('p', {}, link('/admin/orders', '← Orders')),
+    h('p', {}, link('/admin/customers', '← Customers')),
     h('section', { class: 'card' }, h('dl', { class: 'kv' },
       h('dt', { text: 'Status' }), h('dd', {}, badge(o.status)),
       h('dt', { text: 'Customer' }), h('dd', {}, link(`/admin/customers/${o.customer_id}`, o.full_name), ` · ${o.phone_e164}`),
@@ -898,180 +619,17 @@ async function generateInvite(licenseId, invitationId) {
 // ===========================================================================
 // Invitations, devices, licenses
 // ===========================================================================
-function invitationsTable(rows) {
-  return table([
-    { label: 'Customer', render: (i) => h('div', {}, link(`/admin/customers/${i.customer_id}`, i.full_name), h('div', { class: 'sub', text: i.phone_e164 || '' })) },
-    { label: 'Book', key: 'book_title' },
-    { label: 'Link', render: (i) => h('span', { class: 'mono', text: `…/access/${i.token_hint}…` }) },
-    { label: 'Status', render: (i) => badge(i.status) },
-    { label: 'Expires', render: (i) => fmtDate(i.expires_at) },
-    { label: 'Opened / used', render: (i) => h('div', {}, h('div', { class: 'sub', text: `opened ${fmtDate(i.opened_at)}` }), h('div', { class: 'sub', text: `used ${fmtDate(i.consumed_at)}` })) },
-    { label: '', render: (i) => (can('invitations.manage') ? h('div', { class: 'actions' },
-      i.status === 'PENDING' ? btn('Revoke', () => act(() => api('POST', `/api/admin/invitations/${i.id}/revoke`), { ok: 'Invitation revoked' }), 'btn btn-small btn-danger') : null,
-      btn(i.status === 'CONSUMED' ? 'New link' : 'Reissue', () => generateInvite(i.license_id, i.id))) : '') },
-  ], rows, 'No invitations.');
-}
-
-async function viewInvitations(q) {
-  const d = await api('GET', `/api/admin/invitations?${q}`);
-  page('Access Invitations',
-    h('p', { class: 'hint', text: 'Generate links from a verified order. Only a hint of each link is stored; the full link is shown once when generated.' }),
-    filterBar(q, [{ name: 'status', label: 'All statuses', options: ['PENDING', 'CONSUMED', 'EXPIRED', 'REVOKED', 'REPLACED'].map((s) => [s, s]) }]),
-    invitationsTable(d.invitations), pager({ ...d, rows: d.invitations.length }, (p) => setQuery({ page: p })));
-}
-
-function devicesTable(rows) {
-  return table([
-    { label: 'Customer', render: (d) => link(`/admin/customers/${d.customer_id}`, d.full_name) },
-    { label: 'Book(s)', render: (d) => d.books || '—' },
-    { label: 'Device', render: (d) => h('div', {}, `${d.browser} on ${d.os}`, h('div', { class: 'sub', text: d.device_category })) },
-    { label: 'Status', render: (d) => h('div', {}, badge(d.status), d.revoked_reason ? h('div', { class: 'sub', text: d.revoked_reason }) : null, d.transition_until ? h('div', { class: 'sub', text: `works until ${fmtDate(d.transition_until)}` }) : null) },
-    { label: 'Registered', render: (d) => fmtDate(d.registered_at) },
-    { label: 'App installed', render: (d) => (d.installed_at ? fmtDate(d.installed_at) : h('span', { class: 'sub', text: 'Not yet' })) },
-    { label: 'Last activity', render: (d) => fmtDate(d.last_seen_at) },
-    { label: 'Sessions', render: (d) => String(d.active_sessions ?? 0) },
-    { label: '', render: (d) => (can('access.manage') && ['ACTIVE', 'PENDING_APPROVAL'].includes(d.status)
-      ? btn('Revoke device', async () => { const v = await ask('Revoke device', 'This browser stops working immediately. The customer can register another device by signing in.', [{ name: 'reason', label: 'Reason' }], 'Revoke device', true); if (v) act(() => api('POST', `/api/admin/devices/${d.id}/revoke`, v.reason ? v : {}), { ok: 'Device revoked' }); }, 'btn btn-small btn-danger') : '') },
-  ], rows, 'No devices.');
-}
-
-async function viewDevices(q) {
-  const [d, reps] = await Promise.all([api('GET', `/api/admin/devices?${q}`), api('GET', '/api/admin/device-replacements')]);
-  page('Registered Devices',
-    h('p', { class: 'hint', text: 'A device is the “My Books” app on a phone or computer, holding a registered cryptographic key. To move a customer to a new phone, send them a new link: the old device stops working when the new one opens.' }),
-    filterBar(q, [{ name: 'status', label: 'All statuses', options: ['ACTIVE', 'PENDING_APPROVAL', 'REVOKED', 'REPLACED', 'REJECTED'].map((s) => [s, s.replace('_', ' ')]) }]),
-    devicesTable(d.devices), pager({ ...d, rows: d.devices.length }, (p) => setQuery({ page: p })),
-    h('section', { class: 'card' }, h('h2', { text: 'Device replacement history' }), table([
-      { label: 'Customer', key: 'full_name' }, { label: 'From', render: (r) => (r.old_browser ? `${r.old_browser} on ${r.old_os}` : '—') },
-      { label: 'To', render: (r) => `${r.new_browser} on ${r.new_os}` }, { label: 'Decision', render: (r) => badge(r.mode) },
-      { label: 'How', render: (r) => r.decided_by_name || ({ OWNER_LINK: 'New link from the owner', APP_INSTALL: 'Moved into the app', SELF_SERVICE: 'Customer (old sign-in)' }[r.mode] || '—') }, { label: 'When', render: (r) => fmtDate(r.decided_at || r.created_at) },
-    ], reps.replacements, 'No replacements yet.')));
-}
-
-function licensesTable(rows) {
-  const mng = can('access.manage');
-  return table([
-    { label: 'Customer', render: (l) => (l.full_name ? link(`/admin/customers/${l.customer_id}`, l.full_name) : '—') },
-    { label: 'Book', key: 'book_title' },
-    { label: 'Watermark ref', render: (l) => h('span', { class: 'mono', text: l.trace_code || '—', title: 'Printed on every page this buyer views' }) },
-    { label: 'Order', render: (l) => (l.order_reference ? link(`/admin/orders/${l.order_id}`, l.order_reference) : link(`/admin/orders/${l.order_id}`, 'Open order')) },
-    { label: 'Status', render: (l) => h('div', {}, badge(l.status), l.status_reason ? h('div', { class: 'sub', text: l.status_reason }) : null) },
-    { label: 'Devices', render: (l) => `${l.active_devices ?? '—'} / ${l.max_devices}` },
-    { label: 'Activated', render: (l) => fmtDate(l.activated_at) },
-    { label: 'Expires', render: (l) => (l.expires_at ? fmtDate(l.expires_at) : 'Never') },
-    { label: '', render: (l) => h('div', { class: 'actions' },
-      ['PENDING_ACTIVATION', 'ACTIVE'].includes(l.status) && can('invitations.manage') ? btn(l.status === 'ACTIVE' ? 'New link' : 'Access link', () => generateInvite(l.id), 'btn btn-small btn-primary') : null,
-      mng && l.status === 'ACTIVE' ? btn('Suspend', async () => { const v = await ask('Suspend license', 'Reading stops on the next request until reactivated.', [{ name: 'reason', label: 'Reason' }], 'Suspend', true); if (v) act(() => api('POST', `/api/admin/licenses/${l.id}/suspend`, v), { ok: 'Suspended' }); }) : null,
-      mng && l.status === 'SUSPENDED' ? btn('Reactivate', () => act(() => api('POST', `/api/admin/licenses/${l.id}/reactivate`), { ok: 'Reactivated' })) : null,
-      mng && ['ACTIVE', 'EXPIRED', 'SUSPENDED'].includes(l.status) && l.activated_at ? btn('Renew', async () => { const v = await ask('Renew license', 'Extend access from today (or from the current expiry if later).', [{ name: 'days', label: 'Days (empty = no expiry)', type: 'number', min: 1, nullable: true }], 'Renew'); if (v) act(() => api('POST', `/api/admin/licenses/${l.id}/renew`, v), { ok: 'Renewed' }); }) : null,
-      mng && l.status !== 'REVOKED' ? btn('Devices allowed', async () => { const v = await ask('Devices allowed', 'How many browsers or devices may read this purchase at the same time.', [{ name: 'maxDevices', label: 'Devices', type: 'number', min: 1, maxv: 10, default: l.max_devices, required: true }], 'Save'); if (v) act(() => api('PATCH', `/api/admin/licenses/${l.id}`, v), { ok: 'Updated' }); }) : null,
-      mng && l.status !== 'REVOKED' ? btn('Revoke', async () => { const v = await ask('Revoke license', 'Access to this book ends permanently for this purchase.', [{ name: 'reason', label: 'Reason', required: true }], 'Revoke', true); if (v) act(() => api('POST', `/api/admin/licenses/${l.id}/revoke`, v), { ok: 'License revoked' }); }, 'btn btn-small btn-danger') : null) },
-  ], rows, 'No licenses.');
-}
-
-async function viewLicenses(q) {
-  const d = await api('GET', `/api/admin/licenses?${q}`);
-  page('Reading Licenses',
-    h('p', { class: 'hint', text: 'Every PDF page a buyer views carries their name, masked number and watermark ref. To trace a leaked page, enter the ref printed on it.' }),
-    filterBar(q, [{ name: 'ref', label: 'Watermark ref, e.g. 3FA9C21B' }, { name: 'status', label: 'All statuses', options: ['PENDING_ACTIVATION', 'ACTIVE', 'SUSPENDED', 'REVOKED', 'EXPIRED'].map((s) => [s, s.replace('_', ' ')]) }]),
-    licensesTable(d.licenses), pager({ ...d, rows: d.licenses.length }, (p) => setQuery({ page: p })));
-}
-
 // ===========================================================================
 // Monitoring
 // ===========================================================================
 const EVENT_TYPES = ['INVITATION_OPENED', 'OTP_REQUESTED', 'OTP_VERIFIED', 'DEVICE_REGISTERED', 'LICENSE_ACTIVATED', 'READER_OPENED', 'CHAPTER_ACCESSED', 'READING_SESSION_ENDED', 'ACCESS_DENIED', 'SESSION_EXPIRED', 'DEVICE_REPLACED', 'ACCOUNT_SUSPENDED', 'LICENSE_REVOKED'];
 
-async function viewActivity(q) {
-  const d = await api('GET', `/api/admin/reading-events?${q}`);
-  page('Reading Activity',
-    h('p', { class: 'hint', text: 'Access events, not proof of reading. A chapter being opened does not mean it was read.' }),
-    filterBar(q, [{ name: 'type', label: 'All activity', options: EVENT_TYPES.map((t) => [t, t.replace(/_/g, ' ').toLowerCase()]) }]),
-    table([
-      { label: 'Activity', render: (e) => e.event_type.replace(/_/g, ' ').toLowerCase() },
-      { label: 'Customer', render: (e) => (e.customer_id ? link(`/admin/customers/${e.customer_id}`, e.full_name) : '—') },
-      { label: 'Book', key: 'book' },
-      { label: 'Details', render: (e) => (Object.keys(e.details || {}).length ? h('pre', { class: 'details', text: JSON.stringify(e.details) }) : '') },
-      { label: 'When', render: (e) => fmtDate(e.created_at) },
-    ], d.events, 'No activity.'), pager({ ...d, rows: d.events.length }, (p) => setQuery({ page: p })));
-}
-
-async function viewSecurity(q) {
-  const d = await api('GET', `/api/admin/security-events?${q}`);
-  page('Security Events',
-    filterBar(q, [{ name: 'open', label: 'All events', options: [['true', 'Open only']] }, { name: 'severity', label: 'Any severity', options: [['HIGH', 'High'], ['MEDIUM', 'Medium'], ['LOW', 'Low']] }]),
-    table([
-      { label: 'Event', render: (e) => h('div', {}, e.event_type.replace(/_/g, ' '), Object.keys(e.details || {}).length ? h('pre', { class: 'details', text: JSON.stringify(e.details) }) : null) },
-      { label: 'Severity', render: (e) => badge(e.severity) },
-      { label: 'Customer', render: (e) => (e.customer_id ? link(`/admin/customers/${e.customer_id}`, e.full_name || 'Customer') : '—') },
-      { label: 'When', render: (e) => fmtDate(e.created_at) },
-      { label: 'Resolution', render: (e) => (e.resolved_at ? h('div', {}, e.resolution, h('div', { class: 'sub', text: `${e.resolved_by_name || ''} · ${fmtDate(e.resolved_at)}` }))
-        : (can('security.manage') ? btn('Resolve', async () => { const v = await ask('Resolve event', 'Record what you found or did.', [{ name: 'resolution', label: 'Resolution note', required: true }], 'Resolve'); if (v) act(() => api('POST', `/api/admin/security-events/${e.id}/resolve`, v), { ok: 'Resolved' }); }) : badge('PENDING'))) },
-    ], d.events, 'No security events.'), pager({ ...d, rows: d.events.length }, (p) => setQuery({ page: p })));
-}
-
-async function viewAudit(q) {
-  const d = await api('GET', `/api/admin/audit-logs?${q}`);
-  page('Audit Logs',
-    filterBar(q, [{ name: 'action', label: 'Action contains' }, { name: 'entityType', label: 'Any entity', options: ['book', 'book_edition', 'customer', 'order', 'invitation', 'license', 'device', 'administrator', 'website_settings', 'system_settings', 'security_event'].map((x) => [x, x]) }]),
-    table([
-      { label: 'When', render: (l) => fmtDate(l.created_at) }, { label: 'Administrator', render: (l) => l.admin_name || 'System' },
-      { label: 'Action', key: 'action' }, { label: 'Entity', render: (l) => h('div', {}, l.entity_type, h('div', { class: 'sub mono', text: l.entity_id || '' })) },
-      { label: 'Details', render: (l) => h('pre', { class: 'details', text: JSON.stringify(l.details) }) },
-    ], d.logs, 'No entries.'), pager({ ...d, rows: d.logs.length }, (p) => setQuery({ page: p })));
-}
-
 // ===========================================================================
 // Website content and WhatsApp
 // ===========================================================================
-async function viewWhatsapp() {
-  const [{ content }, { books }] = await Promise.all([api('GET', '/api/admin/website'), api('GET', '/api/admin/books')]);
-  const published = books.filter((b) => b.published);
-  const featured = buildForm([
-    { name: 'featuredBookId', label: 'Book named in the WhatsApp order message', type: 'select', nullable: true,
-      options: [['', 'First published book'], ...published.map((b) => [b.id, b.title])],
-      hint: 'Used for {book_title} in the order message. The download page itself is only ever shown through a private link.' },
-  ], content.site || {}, { submit: 'Save', columns: false, onSubmit: (v) => act(() => api('PUT', '/api/admin/website/site', v), { ok: 'Saved', reload: false }) });
-  const f = buildForm([
-    { name: 'contactName', label: 'Contact name shown to visitors', placeholder: 'e.g. Kenedy Njume', hint: 'Visitors without a private link see: “To get a book, contact [name] on WhatsApp”' },
-    { name: 'number', label: 'Business WhatsApp number', placeholder: '+255712345678', hint: 'The “Chat on WhatsApp” button opens a chat with this number' },
-    { name: 'orderMessage', label: 'Prefilled order message', type: 'textarea', full: true, hint: 'Placeholders: {book_title}' },
-    { name: 'invitationTemplate', label: 'Invitation message sent to customers', type: 'textarea', full: true, rows: 10, required: true,
-      hint: 'Placeholders: {customer_name}, {book_title}, {invitation_link} (required), {expiry_hours}' },
-  ], content.whatsapp || {}, { submit: 'Save WhatsApp settings', onSubmit: (v) => act(() => api('PUT', '/api/admin/website/whatsapp', v), { ok: 'Saved', reload: false }) });
-  page('Download Page & WhatsApp',
-    h('section', { class: 'card' }, h('h2', { text: 'Download page' }), featured.form),
-    h('section', { class: 'card' }, h('h2', { text: 'WhatsApp' }), f.form),
-    h('section', { class: 'card' }, h('h2', { text: 'Verification codes (OTP)' }),
-      h('p', { class: 'hint', text: 'Customer verification codes are sent through the WhatsApp Business Cloud API configured on the server (WHATSAPP_* environment variables). Invitations are sent by you with the “Send via WhatsApp” button after generating a link.' })));
-}
-
 // ===========================================================================
 // Administrators, settings, account
 // ===========================================================================
-async function viewAdmins() {
-  const d = await api('GET', '/api/admin/administrators');
-  const roleOpts = d.roles.map((r) => [r.name, `${r.name} — ${r.description}`]);
-  const f = buildForm([
-    { name: 'fullName', label: 'Full name', required: true }, { name: 'email', label: 'Email', type: 'email', required: true },
-    { name: 'role', label: 'Role', type: 'select', options: roleOpts, default: 'MANAGER' },
-    { name: 'password', label: 'Temporary password', type: 'password', required: true, hint: 'At least 12 characters. Ask them to change it after signing in.', autocomplete: 'new-password' },
-  ], {}, { submit: 'Add administrator', onSubmit: (v) => act(() => api('POST', '/api/admin/administrators', v), { ok: 'Administrator added' }) });
-  page('Administrators',
-    table([
-      { label: 'Name', render: (a) => h('div', {}, a.full_name, h('div', { class: 'sub', text: a.email })) },
-      { label: 'Role', render: (a) => badge(a.role) }, { label: 'Status', render: (a) => badge(a.status) },
-      { label: '2FA', render: (a) => (a.mfa_enabled ? badge('ACTIVE') : badge('PENDING')) },
-      { label: 'Last sign-in', render: (a) => fmtDate(a.last_login_at) },
-      { label: '', render: (a) => (a.id === me.id ? h('span', { class: 'hint', text: 'You' }) : h('div', { class: 'actions' },
-        btn('Change role', async () => { const v = await ask('Change role', `Choose a role for ${a.full_name}.`, [{ name: 'role', label: 'Role', type: 'select', options: roleOpts, default: a.role }], 'Save'); if (v) act(() => api('PATCH', `/api/admin/administrators/${a.id}`, v), { ok: 'Role updated' }); }),
-        a.status === 'ACTIVE'
-          ? btn('Disable', () => act(() => api('PATCH', `/api/admin/administrators/${a.id}`, { status: 'DISABLED' }), { ok: 'Disabled' }), 'btn btn-small btn-danger')
-          : btn('Enable', () => act(() => api('PATCH', `/api/admin/administrators/${a.id}`, { status: 'ACTIVE' }), { ok: 'Enabled' })))) },
-    ], d.administrators),
-    h('section', { class: 'card' }, h('h2', { text: 'Add an administrator' }), f.form));
-}
-
 const SETTING_LABELS = {
   invitation_expiry_hours: ['Default link validity (hours)', 'How long a new private link can be used before the book is added. Can be changed per link'],
   session_ttl_hours: ['Reading session length (hours)', 'Customers confirm their number again after this'],
@@ -1081,18 +639,6 @@ const SETTING_LABELS = {
   content_requests_per_minute: ['Reader requests allowed per minute', 'Above this, requests are blocked and flagged'],
   require_app_install: ['Reading only in the installed app', 'Customers must add the reader to their device before reading; the download page expires once installed'],
 };
-
-async function viewSettings() {
-  const { settings, schema } = await api('GET', '/api/admin/settings');
-  const fields = Object.entries(schema).map(([k, s]) => (s.type === 'bool'
-    ? { name: k, label: SETTING_LABELS[k]?.[0] || k, type: 'select', options: [['true', 'Yes'], ['false', 'No']], hint: SETTING_LABELS[k]?.[1] }
-    : s.enum
-    ? { name: k, label: SETTING_LABELS[k]?.[0] || k, type: 'select', options: s.enum.map((v) => [v, v === 'SELF_SERVICE' ? 'Customer can move it after verifying their number' : 'Requires my approval']), hint: SETTING_LABELS[k]?.[1] }
-    : { name: k, label: SETTING_LABELS[k]?.[0] || k, type: 'number', min: s.min, maxv: s.max, nullable: s.nullable, hint: SETTING_LABELS[k]?.[1] }));
-  const values = Object.fromEntries(Object.entries(settings).map(([k, v]) => [k, typeof v === 'boolean' ? String(v) : v]));
-  const f = buildForm(fields, values, { submit: 'Save settings', onSubmit: (v) => act(() => api('PUT', '/api/admin/settings', v), { ok: 'Settings saved' }) });
-  page('System Settings', h('p', { class: 'hint', text: 'Access policy for invitations, verification codes, sessions and devices. Changes apply to new requests immediately.' }), h('section', { class: 'card' }, f.form));
-}
 
 function viewAccount() {
   const mfaBox = h('div');

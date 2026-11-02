@@ -72,6 +72,14 @@ sample customers and sales.
 To load your own book file during development: `npm run seed:dev -- --book "C:\path\to\book.pdf"`
 (or upload it in the dashboard under Books).
 
+## Starting afresh
+
+`npm run reset:data -- --yes` deletes every book, customer, order, link, device and log, and the
+stored book files (development only; administrator accounts are kept). Then `npm run seed:dev`
+creates the book with the cover in `public/assets/cover.png` (it becomes the full-page front
+cover), loads the book file from `content/`, and sets the owner's WhatsApp contact.
+Extra administrators: `npm run admin:create -- --email a@b.com --name "Name" --role MANAGER`.
+
 ## Letting someone remote test it
 
 `npm run share` opens two temporary public HTTPS addresses for this computer, one for the

@@ -230,6 +230,18 @@ const pdfjsDir = () => path.dirname(require.resolve('pdfjs-dist/package.json'));
 /** pdf.js insists that its font and character-map folders end with "/" (Windows paths use "\\"). */
 export const factoryUrl = (dir) => `${String(dir).replace(/\\/g, '/').replace(/\/+$/, '')}/`;
 
+/** The book's cover image filling a whole page of the given size (centred, slightly trimmed if the shapes differ). */
+export async function coverPage(coverBuf, width, height) {
+  const { createCanvas, loadImage } = await import('@napi-rs/canvas');
+  const img = await loadImage(coverBuf);
+  const canvas = createCanvas(width, height);
+  const ctx = canvas.getContext('2d');
+  const scale = Math.max(width / img.width, height / img.height);
+  const dw = img.width * scale; const dh = img.height * scale;
+  ctx.drawImage(img, (width - dw) / 2, (height - dh) / 2, dw, dh);
+  return canvas.toBuffer('image/png');
+}
+
 export async function renderPdfPages(buf, cfg, onPage) {
   const pdfjs = await loadPdfjs();
   const base = pdfjsDir();
@@ -263,10 +275,11 @@ export async function renderPdfPages(buf, cfg, onPage) {
       context.fillRect(0, 0, canvas.width, canvas.height);
       await page.render({ canvasContext: context, viewport: vp, canvas }).promise;
       const png = canvas.toBuffer('image/png');
+      const width = canvas.width; const height = canvas.height;
       const text = (await page.getTextContent()).items.map((i) => i.str || '').join(' ').replace(/\s+/g, ' ').trim();
       doc.canvasFactory.destroy({ canvas, context });
       page.cleanup();
-      await onPage({ index: n - 1, png, text });
+      await onPage({ index: n - 1, png, text, width, height });
     }
     // Table of contents from the PDF outline (bookmarks), when the PDF has one.
     const toc = [];
@@ -352,11 +365,19 @@ export function createIngest({ pool, cfg, kms, storage, scanner, logger }) {
         }
         toc = book.toc;
       } else {
-        const result = await renderPdfPages(buffer, cfg, async ({ index, png, text }) => {
+        // The book's cover image, when it has one, is the first page: the front cover fills the whole page.
+        const { rows: [bk] } = await pool.query('SELECT cover_storage_key FROM books WHERE id=$1', [bookId]);
+        let coverBuf = null;
+        if (bk?.cover_storage_key) { try { coverBuf = await storage.get(bk.cover_storage_key); } catch { coverBuf = null; } }
+        const result = await renderPdfPages(buffer, cfg, async ({ index, png: rendered, text: pageText, width, height }) => {
+          let png = rendered; let text = pageText; let title = `Page ${index + 1}`;
+          if (index === 0 && coverBuf) {
+            try { png = await coverPage(coverBuf, width, height); text = ''; title = 'Front cover'; } catch { /* keep the PDF's own first page */ }
+          }
           const id = crypto.randomUUID();
           const key = `books/${bookId}/${editionId}/a/${id}.bin`;
           await putEncrypted(key, dataKey, png, `${editionId}:${id}`);
-          assets.push([id, 'PAGE_IMAGE', index, `Page ${index + 1}`, '', 'image/png', key, png.length]);
+          assets.push([id, 'PAGE_IMAGE', index, title, '', 'image/png', key, png.length]);
           if (text) {
             const tid = crypto.randomUUID();
             const tkey = `books/${bookId}/${editionId}/a/${tid}.bin`;

@@ -2,7 +2,7 @@
 // active license for the requested book on this device. Responses are never cacheable.
 import express from 'express';
 import { validate, notFound, uuidParam, HttpError } from '../lib/http.js';
-import { watermarkPage, traceCode, maskedPhone } from '../services/watermark.js';
+import { watermarkPage, traceCode, maskedPhone, formatPhone } from '../services/watermark.js';
 
 export function readerRoutes({ pool, access, ingest, events, readerAuth, storage, cfg, settings }) {
   const r = express.Router();
@@ -99,7 +99,12 @@ export function readerRoutes({ pool, access, ingest, events, readerAuth, storage
     let mime = asset.mime === 'text/html' ? 'text/html; charset=utf-8' : asset.mime;
     if (asset.kind === 'PAGE_IMAGE') {
       // Burn the buyer's identity into the page pixels for this request.
-      body = await watermarkPage(body, { name: req.reader.full_name, phone: maskedPhone(req.reader.phone_e164), code: traceCode(cfg.hashPepper, lic.id) });
+      const wa = (await settings.website()).whatsapp || {};
+      body = await watermarkPage(body, {
+        name: req.reader.full_name, phone: maskedPhone(req.reader.phone_e164), code: traceCode(cfg.hashPepper, lic.id),
+        owner: wa.contactName ? { name: wa.contactName, phone: formatPhone(wa.number) } : null,
+        dark: asset.title === 'Front cover',
+      });
       mime = 'image/webp';
     }
     if (asset.kind !== 'IMAGE') {

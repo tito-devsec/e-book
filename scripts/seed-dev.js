@@ -55,19 +55,26 @@ try {
        VALUES ('20-objections-that-cost-you-sales','20 Objections That Cost You Sales','How to Handle Customer Objections and Close More Deals',
                'Kenedy Njume', $1, 15000, 'TZS', false, 1) RETURNING *`,
       ['Every lost sale starts with an objection that was not handled well. This practical guide walks through the twenty objections salespeople hear most and gives you clear, tested ways to respond.']));
+    // The cover goes in first: it becomes the full-page front cover of the book.
     const cover = await fs.readFile(path.join(here, '..', 'public', 'assets', 'cover.png'));
     const key = `covers/${book.id}/seed`;
     await ctx.storage.put(key, cover, 'image/png');
-    const edition = await ctx.ingest.ingestEdition({ bookId: book.id, buffer: await sampleEpub(), label: 'Development sample', adminId: null });
-    await pool.query('UPDATE books SET cover_storage_key=$2, cover_mime=$3, current_edition_id=$4, published=true WHERE id=$1', [book.id, key, 'image/png', edition.id]);
+    await pool.query('UPDATE books SET cover_storage_key=$2, cover_mime=$3 WHERE id=$1', [book.id, key, 'image/png']);
   }
   // The real book kept in content/ becomes the current edition (once; see bundledBook.js).
   const bundled = await loadBundledBook(ctx);
   if (bundled) console.log(`Loaded the book from content/ (${bundled.page_count} pages).`);
+  const { rows: [cur] } = await pool.query('SELECT current_edition_id FROM books WHERE id=$1', [book.id]);
+  if (!cur.current_edition_id) {
+    // No book file in content/: use a generated sample so the app can still be tried.
+    const edition = await ctx.ingest.ingestEdition({ bookId: book.id, buffer: await sampleEpub(), label: 'Development sample', adminId: null });
+    await pool.query('UPDATE books SET current_edition_id=$2, published=true WHERE id=$1', [book.id, edition.id]);
+    console.log('No book file found in content/: loaded a generated sample.');
+  }
   await pool.query(`UPDATE website_settings SET value=$1 WHERE key='site'`, [{ featuredBookId: book.id }]);
   const { rows: [wa] } = await pool.query(`SELECT value FROM website_settings WHERE key='whatsapp'`);
   await pool.query(`UPDATE website_settings SET value=$1 WHERE key='whatsapp'`,
-    [{ ...wa.value, contactName: wa.value.contactName || 'Kenedy Njume', number: wa.value.number || process.env.SEED_WHATSAPP || '+255700000000', orderMessage: 'Hello, I would like to order {book_title}.' }]);
+    [{ ...wa.value, contactName: 'Kenedy Njume', number: process.env.SEED_WHATSAPP || '+255746274010', orderMessage: 'Hello, I would like to order {book_title}.' }]);
 
   // --book <file>: use your own EPUB or PDF as the sample book's current edition.
   const bi = process.argv.indexOf('--book');
