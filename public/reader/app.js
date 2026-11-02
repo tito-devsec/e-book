@@ -561,6 +561,63 @@ async function viewReader(bookId) {
   new Reader(bookId, book.book, manifest, progress.progress, s.books.length > 1).start();
 }
 
+// ===========================================================================
+// Page-turn sound: a paper rustle synthesised with Web Audio (no audio file is downloaded).
+// Each turn is slightly different, like real paper.
+// ===========================================================================
+const pageSound = {
+  ctx: null,
+  noise: null,
+  enabled: prefs.get('sound', 'on') !== 'off',
+  init() {
+    if (this.ctx) return this.ctx;
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return null;
+    this.ctx = new AC();
+    // One second of white noise, reused for every turn.
+    const len = this.ctx.sampleRate;
+    this.noise = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
+    const d = this.noise.getChannelData(0);
+    for (let i = 0; i < len; i += 1) d[i] = Math.random() * 2 - 1;
+    return this.ctx;
+  },
+  unlock() { const c = this.init(); if (c && c.state === 'suspended') c.resume().catch(() => {}); },
+  burst(at, { dur, from, to, q, peak, attack, type = 'bandpass' }) {
+    const c = this.ctx;
+    const src = c.createBufferSource();
+    src.buffer = this.noise;
+    src.playbackRate.value = 0.8 + Math.random() * 0.4;
+    const f = c.createBiquadFilter();
+    f.type = type; f.Q.value = q;
+    f.frequency.setValueAtTime(from, at);
+    f.frequency.exponentialRampToValueAtTime(to, at + dur);
+    const g = c.createGain();
+    g.gain.setValueAtTime(0.0001, at);
+    g.gain.exponentialRampToValueAtTime(peak, at + attack);
+    g.gain.exponentialRampToValueAtTime(0.0001, at + dur);
+    src.connect(f); f.connect(g); g.connect(c.destination);
+    src.start(at, Math.random() * 0.5, dur + 0.05);
+  },
+  play() {
+    if (!this.enabled) return;
+    const c = this.init();
+    if (!c) return;
+    if (c.state === 'suspended') c.resume().catch(() => {});
+    const t = c.currentTime + 0.01;
+    const v = 0.85 + Math.random() * 0.3;
+    // Swish of the sheet moving through the air.
+    this.burst(t, { dur: 0.32 * v, from: 3200 * v, to: 900, q: 0.9, peak: 0.22, attack: 0.05 });
+    // Crisp paper texture on top.
+    this.burst(t + 0.02, { dur: 0.22 * v, from: 6500, to: 3500, q: 1.4, peak: 0.07, attack: 0.03, type: 'highpass' });
+    // Soft flap as the page lands.
+    this.burst(t + 0.26 * v, { dur: 0.09, from: 900, to: 300, q: 0.7, peak: 0.18, attack: 0.008, type: 'lowpass' });
+  },
+  toggle() { this.enabled = !this.enabled; prefs.set('sound', this.enabled ? 'on' : 'off'); if (this.enabled) this.unlock(); return this.enabled; },
+};
+// Browsers only allow sound after the user interacts with the page.
+addEventListener('pointerdown', () => pageSound.unlock(), { once: true });
+addEventListener('keydown', () => pageSound.unlock(), { once: true });
+
 class Reader {
   constructor(bookId, book, manifest, progress, hasLibrary) {
     Object.assign(this, { bookId, book, manifest, hasLibrary });
@@ -748,6 +805,7 @@ class Reader {
     });
     this.flip.loadFromHTML(this.nodes);
     this.flip.on('flip', (e) => this.onFlip(e.data));
+    this.flip.on('changeState', (e) => { if (e.data === 'flipping' && !this.el.classList.contains('shielded')) pageSound.play(); });
     this.onFlip(start);
   }
 
@@ -932,10 +990,21 @@ class Reader {
         h('button', { class: 'btn btn-small', 'aria-label': 'Larger text', onclick: () => this.setFont(this.fs + 1), disabled: this.isPdf }, 'A+')),
       h('div', { class: 'label', text: 'Theme' }),
       seg([['light', 'Light'], ['sepia', 'Sepia'], ['dark', 'Dark']], this.theme, (v) => this.setTheme(v)),
-      h('p', { class: 'hint', text: 'Keyboard: ← → to turn pages, T contents, B bookmark, F search.' }),
+      h('div', { class: 'label', text: 'Page-turn sound' }),
+      seg([['on', 'On'], ['off', 'Off']], pageSound.enabled ? 'on' : 'off', (v) => { if ((v === 'on') !== pageSound.enabled) this.toggleSound(); }),
+      h('p', { class: 'hint', text: 'Keyboard: ← → to turn pages, T contents, B bookmark, F search, S sound.' }),
 
       h('button', { class: 'btn btn-block btn-danger', onclick: () => { this.leave(); logout(); } }, 'Sign out'),
       h('p', { class: 'hint credit' }, 'Icons: ', h('a', { href: 'https://www.flaticon.com/uicons', target: '_blank', rel: 'noopener noreferrer' }, 'UIcons by Flaticon'))));
+  }
+
+  toggleSound() {
+    const on = pageSound.toggle();
+    this.soundBtn.replaceChildren(fi(on ? 'volume' : 'volume-mute'));
+    this.soundBtn.setAttribute('aria-label', on ? 'Page sound on' : 'Page sound off');
+    this.soundBtn.title = on ? 'Page sound on' : 'Page sound off';
+    this.soundBtn.setAttribute('aria-pressed', String(on));
+    if (on) pageSound.play();
   }
 
   setFont(px) {
@@ -982,6 +1051,7 @@ class Reader {
         ib('Search', fi('search'), () => this.showSearch()),
         ib('Contents', fi('list'), () => this.showToc()),
         ib('Bookmarks', fi('bookmark'), () => this.showBookmarks()),
+        this.soundBtn = ib(pageSound.enabled ? 'Page sound on' : 'Page sound off', fi(pageSound.enabled ? 'volume' : 'volume-mute'), () => this.toggleSound()),
         ib('Reading settings', fi('settings-sliders'), () => this.showSettings())),
       stage,
       h('footer', { class: 'rfoot' },
@@ -1007,6 +1077,7 @@ class Reader {
       else if (e.key.toLowerCase() === 't') this.showToc();
       else if (e.key.toLowerCase() === 'b') this.addBookmark();
       else if (e.key.toLowerCase() === 'f') { e.preventDefault(); this.showSearch(); }
+      else if (e.key.toLowerCase() === 's' && !e.ctrlKey && !e.metaKey) this.toggleSound();
     };
     addEventListener('keydown', onKey);
     // Privacy shield: blur the page whenever the reader is not the focused window (app switcher
