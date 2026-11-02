@@ -72,6 +72,41 @@ try {
     { question: 'Can I read on my phone?', answer: 'Yes. You can install the reader on your phone or computer.' }] });
   await set('whatsapp', { number: process.env.SEED_WHATSAPP || '+254700000000', orderMessage: 'Hello, I would like to order {book_title}.',
     invitationTemplate: (await pool.query(`SELECT value FROM website_settings WHERE key='whatsapp'`)).rows[0].value.invitationTemplate });
+  if (process.argv.includes('--demo')) {
+    // Sample sales history so the dashboard charts have something to show. Development only.
+    const names = ['Amina Wanjiru', 'Brian Otieno', 'Grace Achieng', 'Kevin Mwangi', 'Faith Njeri', 'Dennis Kiprop', 'Mercy Atieno', 'John Kamau',
+      'Lucy Wambui', 'Peter Omondi', 'Sharon Chebet', 'Victor Mutua', 'Diana Wairimu', 'Collins Ouma', 'Esther Moraa', 'Samuel Kibet',
+      'Joy Nyambura', 'Moses Barasa', 'Ruth Akinyi', 'Daniel Kariuki', 'Mary Wanjiku', 'Felix Onyango', 'Agnes Jepkosgei', 'Tom Mbugua'];
+    const day = 86400000;
+    let made = 0;
+    for (let i = 0; i < names.length; i += 1) {
+      const phone = `+2547990${String(10000 + i).slice(1)}`;
+      const { rowCount } = await pool.query('SELECT 1 FROM customers WHERE phone_e164=$1', [phone]);
+      if (rowCount) continue;
+      // Most sales in recent weeks, a tail over the last 7 months.
+      const ageDays = i < 10 ? i % 7 : 7 + Math.floor(((i - 10) / (names.length - 10)) * 200);
+      const at = new Date(Date.now() - ageDays * day - (i % 5) * 3600000);
+      const state = i % 9 === 4 ? 'PENDING' : 'VERIFIED';
+      const activated = state === 'VERIFIED' && i % 4 !== 1;
+      const status = state === 'PENDING' ? 'PENDING_PAYMENT' : activated ? 'ACTIVE' : 'INVITED';
+      const { rows: [c] } = await pool.query(
+        `INSERT INTO customers (full_name, phone_e164, status, notes, created_at) VALUES ($1,$2,$3,'Demo data',$4) RETURNING id`, [names[i], phone, status, at]);
+      const { rows: [o] } = await pool.query(
+        `INSERT INTO orders (customer_id, reference, status, total_amount, currency, created_at) VALUES ($1,$2,$3,$4,'KES',$5) RETURNING id`,
+        [c.id, `DEMO-${1000 + i}`, state === 'PENDING' ? 'PENDING_PAYMENT' : 'PAID', book.price_amount, at]);
+      await pool.query('INSERT INTO order_items (order_id, book_id, unit_price) VALUES ($1,$2,$3)', [o.id, book.id, book.price_amount]);
+      await pool.query(
+        `INSERT INTO payments (order_id, amount, currency, method, reference, status, verified_at, created_at) VALUES ($1,$2,'KES',$3,$4,$5,$6,$7)`,
+        [o.id, book.price_amount, i % 3 ? 'M-PESA' : 'Bank transfer', `DEMO${100000 + i}`, state, state === 'VERIFIED' ? new Date(at.getTime() + 3600000) : null, at]);
+      if (state === 'VERIFIED') {
+        await pool.query(
+          `INSERT INTO reading_licenses (customer_id, book_id, order_id, status, activated_at, created_at) VALUES ($1,$2,$3,$4,$5,$6)`,
+          [c.id, book.id, o.id, activated ? (i === 11 ? 'SUSPENDED' : 'ACTIVE') : 'PENDING_ACTIVATION', activated ? new Date(at.getTime() + 7200000) : null, at]);
+      }
+      made += 1;
+    }
+    console.log(`Added ${made} demo customers with orders.`);
+  }
   console.log(`Seeded. Admin: ${email} / ${password}`);
 } finally {
   await pool.end();

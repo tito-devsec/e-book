@@ -159,6 +159,7 @@ function route() {
   const { pathname, search } = location;
   const q = new URLSearchParams(search);
   let m;
+  if (pathname === '/') return viewHome();
   if ((m = pathname.match(/^\/access\/([^/]+)$/))) return viewInvitation(m[1]);
   if (pathname === '/login') return viewLogin(q.get('reason'));
   if (pathname === '/app') return viewLauncher();
@@ -482,10 +483,26 @@ async function logout() {
 // ===========================================================================
 // Book preparation page  (/book/:id)
 // ===========================================================================
-async function viewBook(bookId) {
-  let info; let s;
+/** The download page layout (cover, "Download <title>", DOWNLOAD BOOK, START READING). */
+function downloadPage({ book, coverImg, chips = [], topRight = null, onDownload, onStart, disabled = false }) {
+  return h('div', {},
+    h('div', { class: 'prep-top' },
+      h('div', { class: 'prep-bar' }, h('span', { class: 'who', text: book.author }), h('span', {}, topRight)),
+      h('div', { class: 'prep' },
+        h('div', { class: 'prep-cover' }, coverImg),
+        h('div', {},
+          h('h1', { text: `Download ${book.title}` }),
+          chips.length ? h('div', { class: 'chips' }, chips) : null,
+          h('button', { class: 'btn btn-primary', disabled, onclick: onDownload }, 'DOWNLOAD BOOK'),
+          h('div', {}, h('button', { class: 'btn-link start', disabled, onclick: onStart }, 'START READING')),
+          h('p', { class: 'author', text: `by ${book.author}` }),
+          h('p', { class: 'desc', text: (book.description || book.subtitle || '').replace(/\s+/g, ' ').trim() })))));
+}
+
+async function viewBook(bookId, { session } = {}) {
+  let info; let s = session;
   try {
-    s = await loadSession();
+    s ??= await loadSession();
     if (!s.authenticated) return viewDenied(s.code === 'DEVICE_REVOKED' ? 'device' : 'signin');
     info = await api('GET', `/api/reader/books/${bookId}`, undefined, { signed: true });
   } catch (err) { if (await handleAuthError(err)) return; return viewOffline(err); }
@@ -496,22 +513,54 @@ async function viewBook(bookId) {
   const ready = info.preparation === 'READY';
   const read = () => go(`/read/${bookId}`);
 
-  mount(h('div', {},
-    h('div', { class: 'prep-top' },
-      h('div', { class: 'prep-bar' }, h('span', { class: 'who', text: info.book.author }),
-        h('span', {}, s.books.length > 1 ? h('a', { href: '/library', 'data-nav': true }, 'My books') : null)),
-      h('div', { class: 'prep' },
-        h('div', { class: 'prep-cover' }, coverImg),
-        h('div', {},
-          h('h1', { text: `Download ${info.book.title}` }),
-          h('div', { class: 'chips' },
-            h('span', { class: ready ? 'chip' : 'chip wait', text: ready ? 'Ready to read' : 'Preparing your book…' }),
-            h('span', { class: 'chip', text: 'Access active on this device' })),
-          h('button', { class: 'btn btn-primary', disabled: !ready, onclick: () => showInstallModal({ coverUrl: coverImg.src }) }, 'DOWNLOAD BOOK'),
-          h('div', {}, h('button', { class: 'btn-link start', disabled: !ready, onclick: () => showInstallModal({ coverUrl: coverImg.src, onContinue: read }) }, 'START READING')),
-          h('p', { class: 'author', text: `by ${info.book.author}` }),
-          h('div', { class: 'desc' }, (info.book.description || info.book.subtitle || '').split(/\n{2,}/).filter(Boolean).map((p) => h('p', { text: p }))))))));
+  mount(downloadPage({
+    book: info.book, coverImg, disabled: !ready,
+    chips: [h('span', { class: ready ? 'chip' : 'chip wait', text: ready ? 'Ready to read' : 'Preparing your book…' }),
+      h('span', { class: 'chip', text: 'Access active on this device' })],
+    topRight: s.books.length > 1 ? h('a', { href: '/library', 'data-nav': true }, 'My books') : h('button', { class: 'btn-link', onclick: logout }, 'Sign out'),
+    onDownload: () => showInstallModal({ coverUrl: coverImg.src }),
+    onStart: () => showInstallModal({ coverUrl: coverImg.src, onContinue: read }),
+  }));
   onCleanup(revokeBlobs);
+}
+
+// ===========================================================================
+// Home  (/ on the reader's own host or port): the book download page
+// ===========================================================================
+async function viewHome() {
+  if (isStandalone()) return go('/app', true);
+  let s;
+  try { s = await loadSession(); } catch (err) { return viewOffline(err); }
+  if (s.authenticated && s.books.length === 1) return viewBook(s.books[0].id, { session: s });
+  if (s.authenticated && s.books.length > 1) return go('/library', true);
+
+  // Visitor without access on this device: show the book, explain how access works.
+  let info;
+  try { info = await api('GET', '/api/public/book'); } catch (err) { return viewOffline(err); }
+  if (!info.book) return mount(screen(h('h1', { text: 'Coming soon' }), h('p', { class: 'muted', text: 'The book will be available here shortly.' })));
+  const coverImg = h('img', { alt: `${info.book.title} cover` });
+  if (info.book.hasCover) coverImg.src = `/media/covers/${info.book.id}`;
+  const needAccess = () => {
+    const close = () => m.remove();
+    const m = h('div', { class: 'modal', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'access-title' },
+      h('div', { class: 'panel' },
+        info.book.hasCover ? h('img', { src: `/media/covers/${info.book.id}`, alt: '' }) : null,
+        h('h1', { id: 'access-title', text: 'Get it on your device' }),
+        h('p', { class: 'muted', text: 'This book is private to its buyers. Your copy opens in the protected reader on your own device.' }),
+        h('div', { class: 'stack' },
+          h('a', { class: 'btn btn-primary btn-block', href: '/login', 'data-nav': true, onclick: close }, 'I bought it — sign in with WhatsApp'),
+          h('p', { class: 'hint', text: 'First time? Open the private invitation link you received on WhatsApp after paying.' }),
+          info.orderUrl ? h('a', { class: 'btn btn-block', href: info.orderUrl, target: '_blank', rel: 'noopener noreferrer' }, 'Buy this book on WhatsApp') : null,
+          h('button', { class: 'btn-link', onclick: close }, 'Not now'))));
+    m.addEventListener('click', (e) => { if (e.target === m) close(); });
+    document.body.append(m);
+    m.querySelector('a, button')?.focus();
+  };
+  mount(downloadPage({
+    book: info.book, coverImg,
+    topRight: h('a', { href: '/login', 'data-nav': true }, 'Sign in'),
+    onDownload: needAccess, onStart: needAccess,
+  }));
 }
 
 // ===========================================================================

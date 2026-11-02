@@ -25,6 +25,12 @@ export function loadConfig() {
     isProd,
     isTest: nodeEnv === 'test',
     port: int(env.PORT, 3000),
+    // Extra local ports so each application can have its own port in development or on one
+    // server (e.g. reader 3000, website 3001, admin 3002). Which app answers on which port is
+    // decided by the *_BASE_URL values.
+    publicPort: int(env.PUBLIC_PORT, 0),
+    adminPort: int(env.ADMIN_PORT, 0),
+    readerPort: int(env.READER_PORT, 0),
     databaseUrl: required('DATABASE_URL'),
     databaseSsl: bool(env.DATABASE_SSL, false),
     // Hosts. When set, each application is served only on its own host.

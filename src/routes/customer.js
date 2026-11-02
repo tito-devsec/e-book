@@ -3,7 +3,7 @@ import express from 'express';
 import { validate, badRequest } from '../lib/http.js';
 import { cookieOptions, parseCookies } from '../middleware.js';
 
-export function customerRoutes({ access, cfg, rateLimiter, readerAuth }) {
+export function customerRoutes({ access, cfg, rateLimiter, readerAuth, pool, settings }) {
   const r = express.Router();
   const limitAccess = rateLimiter.middleware('access', 30, 10 * 60000);
   const limitOtp = rateLimiter.middleware('otp', 10, 10 * 60000);
@@ -14,6 +14,23 @@ export function customerRoutes({ access, cfg, rateLimiter, readerAuth }) {
   };
   const noStore = (req, res, next) => { res.set('Cache-Control', 'no-store'); next(); };
   r.use(noStore);
+
+  // ---- Public book information for the download home page -------------------
+  // Only published marketing metadata: never content, customers or tokens.
+  r.get('/public/book', async (req, res) => {
+    const c = await settings.website();
+    const id = c.site?.featuredBookId;
+    const { rows: [b] } = id
+      ? await pool.query('SELECT * FROM books WHERE id=$1 AND published', [id])
+      : await pool.query('SELECT * FROM books WHERE published ORDER BY created_at LIMIT 1');
+    if (!b) return res.json({ book: null });
+    const wa = c.whatsapp || {};
+    const msg = (wa.orderMessage || '').replaceAll('{book_title}', b.title);
+    res.json({
+      book: { id: b.id, title: b.title, subtitle: b.subtitle, author: b.author, description: b.description, hasCover: Boolean(b.cover_storage_key) },
+      orderUrl: wa.number ? `https://wa.me/${wa.number.replace(/^\+/, '')}?text=${encodeURIComponent(msg)}` : null,
+    });
+  });
 
   // ---- Invitations ---------------------------------------------------------
   r.post('/access/validate-invitation', limitAccess, async (req, res) => {

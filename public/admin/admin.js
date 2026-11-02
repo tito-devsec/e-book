@@ -133,7 +133,7 @@ function buildForm(fields, values = {}, { submit = 'Save', onSubmit, columns = t
 function modal(title, body, { wide } = {}) {
   const close = () => m.remove();
   const m = h('div', { class: 'modal', role: 'dialog', 'aria-modal': 'true', 'aria-label': title },
-    h('div', { class: 'card' }, h('div', { class: 'topbar' }, h('h2', { text: title }), btn('Close', close)), body));
+    h('div', { class: 'card' }, h('div', { class: 'mhead' }, h('h2', { text: title }), btn('Close', close)), body));
   if (wide) m.querySelector('.card').style.maxWidth = '900px';
   m.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); });
   m.addEventListener('click', (e) => { if (e.target === m) close(); });
@@ -166,50 +166,249 @@ function pager(data, onPage) {
 }
 
 // ===========================================================================
+// Icons (inline SVG, stroke style)
+// ===========================================================================
+const SVGNS = 'http://www.w3.org/2000/svg';
+function svgEl(tag, attrs = {}, ...children) {
+  const el = document.createElementNS(SVGNS, tag);
+  for (const [k, v] of Object.entries(attrs)) if (v !== undefined && v !== null) el.setAttribute(k, String(v));
+  for (const c of children.flat(Infinity)) if (c) el.append(c);
+  return el;
+}
+const ICONS = {
+  home: ['M3 11l9-7 9 7', 'M5 10v10h5v-6h4v6h5V10'],
+  orders: ['M6 7h12l-1 12H7L6 7z', 'M9 7a3 3 0 0 1 6 0'],
+  payments: ['M3 7h18v10H3z', 'M3 11h18', 'M7 15h3'],
+  customers: ['M16 19c0-2.2-1.8-4-4-4s-4 1.8-4 4', 'M12 12a3 3 0 1 0 0-6 3 3 0 0 0 0 6z', 'M19 18c0-1.6-1-3-2.5-3.6', 'M16 6.3a3 3 0 0 1 0 5.4'],
+  invitations: ['M4 6h16v12H4z', 'M4 7l8 6 8-6'],
+  devices: ['M8 3h8a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1H8a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z', 'M11 18h2'],
+  licenses: ['M14 10a4 4 0 1 0-3.9 4L9 15v2H7v2H4v-3l5.9-5.9', 'M15.5 8.5h.01'],
+  books: ['M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2V5z', 'M4 19a2 2 0 0 1 2-2h13'],
+  editions: ['M12 3l9 5-9 5-9-5 9-5z', 'M3 13l9 5 9-5', 'M3 17l9 5 9-5'],
+  activity: ['M3 12h4l3-8 4 16 3-8h4'],
+  security: ['M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6l8-3z', 'M9 12l2 2 4-4'],
+  audit: ['M8 6h12', 'M8 12h12', 'M8 18h12', 'M4 6h.01', 'M4 12h.01', 'M4 18h.01'],
+  website: ['M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z', 'M3 12h18', 'M12 3c2.5 2.5 3.8 5.5 3.8 9s-1.3 6.5-3.8 9c-2.5-2.5-3.8-5.5-3.8-9S9.5 5.5 12 3z'],
+  whatsapp: ['M4 20l1.3-4A8 8 0 1 1 8 18.7L4 20z', 'M9 9.5c.5 2 2 3.5 4 4l1-1 2 1c-.3 1-1 1.5-2 1.5-3 0-6-3-6-6 0-1 .5-1.7 1.5-2l1 2-1 1z'],
+  admins: ['M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8z', 'M4 21c0-4 3.6-6 8-6', 'M18 15l1 2 2 .3-1.5 1.5.4 2.2-1.9-1-1.9 1 .4-2.2L15 17.3l2-.3 1-2z'],
+  settings: ['M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z', 'M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9c.3.6.9 1 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z'],
+  account: ['M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8z', 'M4 21c0-4 3.6-7 8-7s8 3 8 7'],
+  search: ['M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14z', 'M20 20l-4-4'],
+  bell: ['M6 8a6 6 0 1 1 12 0c0 7 3 9 3 9H3s3-2 3-9', 'M10.3 21a2 2 0 0 0 3.4 0'],
+  check: ['M5 12l5 5 9-10'],
+  clock: ['M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z', 'M12 7v5l3 2'],
+  x: ['M6 6l12 12', 'M18 6L6 18'],
+  plus: ['M12 5v14', 'M5 12h14'],
+  arrow: ['M5 12h14', 'M13 6l6 6-6 6'],
+  book: ['M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2V5z'],
+};
+function icon(name, size = 20) {
+  return svgEl('svg', { viewBox: '0 0 24 24', width: size, height: size, fill: 'none', stroke: 'currentColor', 'stroke-width': 1.8, 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'aria-hidden': 'true' },
+    (ICONS[name] || []).map((d) => svgEl('path', { d })));
+}
+const initials = (name) => String(name || '?').trim().split(/\s+/).slice(0, 2).map((p) => p[0]?.toUpperCase() || '').join('');
+
+// ===========================================================================
+// Charts (hand-built SVG; colours validated for contrast and colour-blind separation)
+// ===========================================================================
+const SERIES = ['#e8592a', '#3f4fb5'];
+function niceMax(v) {
+  if (v <= 4) return 4;
+  const p = 10 ** Math.floor(Math.log10(v));
+  for (const m of [1, 2, 2.5, 5, 10]) if (m * p >= v) return m * p;
+  return 10 * p;
+}
+function tooltipLayer(container) {
+  const tip = h('div', { class: 'tip', role: 'tooltip' }); tip.hidden = true;
+  container.append(tip);
+  return {
+    show(x, y, rows, title) {
+      tip.replaceChildren(h('div', {}, h('b', { text: title })), ...rows.map(([color, label, value]) => h('div', {},
+        color ? Object.assign(h('span', { class: 'sw' }), { style: '' }) : null, `${label}: `, h('b', { text: value }))));
+      tip.querySelectorAll('.sw').forEach((s, i) => { s.style.background = rows[i][0]; });
+      tip.style.left = `${x}px`; tip.style.top = `${y}px`; tip.hidden = false;
+    },
+    hide() { tip.hidden = true; },
+  };
+}
+/** Round-topped bar anchored to the baseline. */
+function barPath(x, y, w, hgt, r = 4) {
+  if (hgt <= 0) return '';
+  const rr = Math.min(r, w / 2, hgt);
+  return `M${x},${y + hgt}V${y + rr}Q${x},${y} ${x + rr},${y}H${x + w - rr}Q${x + w},${y} ${x + w},${y + rr}V${y + hgt}Z`;
+}
+function groupedBarChart({ labels, fullLabels, series, height = 230 }) {
+  const W = 640; const H = height; const L = 34; const B = 26; const T = 10; const R = 6;
+  const max = niceMax(Math.max(1, ...series.flatMap((s) => s.values)));
+  const pw = W - L - R; const ph = H - T - B;
+  const gw = pw / labels.length; const bw = Math.min(16, gw * 0.24); const gap = 4;
+  const svg = svgEl('svg', { viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': `${series.map((s) => s.name).join(' and ')} per day` });
+  for (let i = 0; i <= 4; i += 1) {
+    const y = T + ph - (ph * i) / 4;
+    svg.append(svgEl('line', { class: 'gridline', x1: L, x2: W - R, y1: y, y2: y }));
+    svg.append(svgEl('text', { class: 'axis-label', x: L - 8, y: y + 4, 'text-anchor': 'end' }, document.createTextNode(String((max * i) / 4))));
+  }
+  const wrap = h('div', { class: 'chart' }, svg);
+  const tip = tooltipLayer(wrap);
+  labels.forEach((lab, i) => {
+    const cx = L + gw * i + gw / 2;
+    const total = series.length * bw + (series.length - 1) * gap;
+    svg.append(svgEl('text', { class: 'axis-label', x: cx, y: H - 6, 'text-anchor': 'middle' }, document.createTextNode(lab)));
+    series.forEach((s, k) => {
+      const v = s.values[i]; const bh = (v / max) * ph;
+      const x = cx - total / 2 + k * (bw + gap);
+      const show = () => {
+        const r = wrap.getBoundingClientRect(); const sr = svg.getBoundingClientRect();
+        tip.show(((cx) / W) * sr.width + (sr.left - r.left), ((T + ph - bh) / H) * sr.height + (sr.top - r.top),
+          series.map((ss) => [ss.color, ss.name, String(ss.values[i])]), fullLabels?.[i] || lab);
+      };
+      // Hit target covers the whole column height so small bars are easy to hover.
+      const hit = svgEl('rect', { x: x - 2, y: T, width: bw + 4, height: ph, fill: 'transparent', tabindex: 0, 'aria-label': `${fullLabels?.[i] || lab}: ${s.name} ${v}` });
+      hit.addEventListener('pointerenter', show); hit.addEventListener('focus', show);
+      hit.addEventListener('pointerleave', () => tip.hide()); hit.addEventListener('blur', () => tip.hide());
+      if (bh > 0) svg.append(svgEl('path', { class: 'bar', d: barPath(x, T + ph - bh, bw, bh), fill: s.color }));
+      svg.append(hit);
+    });
+  });
+  return wrap;
+}
+function smoothPath(pts) {
+  if (pts.length < 2) return '';
+  let d = `M${pts[0][0]},${pts[0][1]}`;
+  for (let i = 1; i < pts.length; i += 1) {
+    const [x0, y0] = pts[i - 1]; const [x1, y1] = pts[i]; const mx = (x0 + x1) / 2;
+    d += ` C${mx},${y0} ${mx},${y1} ${x1},${y1}`;
+  }
+  return d;
+}
+let gradSeq = 0;
+function areaChart({ labels, fullLabels, values, color, format, height = 230 }) {
+  const W = 640; const H = height; const L = 54; const B = 26; const T = 12; const R = 10;
+  const max = niceMax(Math.max(1, ...values));
+  const pw = W - L - R; const ph = H - T - B;
+  const xs = (i) => L + (labels.length === 1 ? pw / 2 : (pw * i) / (labels.length - 1));
+  const ys = (v) => T + ph - (v / max) * ph;
+  const pts = values.map((v, i) => [xs(i), ys(v)]);
+  const id = `grad${gradSeq += 1}`;
+  const svg = svgEl('svg', { viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': 'Verified revenue per month' },
+    svgEl('defs', {}, svgEl('linearGradient', { id, x1: 0, y1: 0, x2: 0, y2: 1 },
+      svgEl('stop', { offset: '0%', 'stop-color': color, 'stop-opacity': 0.28 }), svgEl('stop', { offset: '100%', 'stop-color': color, 'stop-opacity': 0.02 }))));
+  for (let i = 0; i <= 4; i += 1) {
+    const y = T + ph - (ph * i) / 4;
+    svg.append(svgEl('line', { class: 'gridline', x1: L, x2: W - R, y1: y, y2: y }));
+    svg.append(svgEl('text', { class: 'axis-label', x: L - 8, y: y + 4, 'text-anchor': 'end' }, document.createTextNode(format((max * i) / 4, true))));
+  }
+  labels.forEach((lab, i) => svg.append(svgEl('text', { class: 'axis-label', x: xs(i), y: H - 6, 'text-anchor': 'middle' }, document.createTextNode(lab))));
+  const line = smoothPath(pts);
+  svg.append(svgEl('path', { d: `${line} L${xs(labels.length - 1)},${T + ph} L${xs(0)},${T + ph} Z`, fill: `url(#${id})` }));
+  svg.append(svgEl('path', { d: line, fill: 'none', stroke: color, 'stroke-width': 2.5, 'stroke-linecap': 'round' }));
+  const hair = svgEl('line', { x1: 0, x2: 0, y1: T, y2: T + ph, stroke: '#c5cbd6', 'stroke-width': 1, 'stroke-dasharray': '3 3', visibility: 'hidden' });
+  const dot = svgEl('circle', { r: 5, fill: color, stroke: '#fff', 'stroke-width': 2, visibility: 'hidden' });
+  svg.append(hair, dot);
+  const wrap = h('div', { class: 'chart' }, svg);
+  const tip = tooltipLayer(wrap);
+  const overlay = svgEl('rect', { x: L, y: T, width: pw, height: ph, fill: 'transparent', tabindex: 0, 'aria-label': 'Revenue by month; use arrow keys' });
+  let cur = labels.length - 1;
+  const showAt = (i) => {
+    cur = Math.max(0, Math.min(labels.length - 1, i));
+    const [x, y] = pts[cur];
+    for (const el of [hair]) { el.setAttribute('x1', x); el.setAttribute('x2', x); el.setAttribute('visibility', 'visible'); }
+    dot.setAttribute('cx', x); dot.setAttribute('cy', y); dot.setAttribute('visibility', 'visible');
+    const r = wrap.getBoundingClientRect(); const sr = svg.getBoundingClientRect();
+    tip.show((x / W) * sr.width + (sr.left - r.left), (y / H) * sr.height + (sr.top - r.top), [[color, 'Revenue', format(values[cur])]], fullLabels?.[cur] || labels[cur]);
+  };
+  const hide = () => { hair.setAttribute('visibility', 'hidden'); dot.setAttribute('visibility', 'hidden'); tip.hide(); };
+  overlay.addEventListener('pointermove', (e) => {
+    const sr = svg.getBoundingClientRect(); const x = ((e.clientX - sr.left) / sr.width) * W;
+    let best = 0; pts.forEach(([px], i) => { if (Math.abs(px - x) < Math.abs(pts[best][0] - x)) best = i; });
+    showAt(best);
+  });
+  overlay.addEventListener('pointerleave', hide); overlay.addEventListener('blur', hide);
+  overlay.addEventListener('focus', () => showAt(cur));
+  overlay.addEventListener('keydown', (e) => { if (e.key === 'ArrowLeft') showAt(cur - 1); if (e.key === 'ArrowRight') showAt(cur + 1); });
+  svg.append(overlay);
+  return wrap;
+}
+/** Card with a chart and a "view as table" toggle for accessibility. */
+function chartCard({ title, cls = '', legend, chart, tableCols, tableRows, extraHead }) {
+  const tbl = table(tableCols, tableRows); tbl.hidden = true;
+  const toggle = h('button', { class: 'btn-link', type: 'button' }, 'View as table');
+  toggle.addEventListener('click', () => { const showTable = tbl.hidden; tbl.hidden = !showTable; chart.hidden = showTable; toggle.textContent = showTable ? 'View as chart' : 'View as table'; });
+  return h('section', { class: `card ${cls}` },
+    h('div', { class: 'sec-head' }, h('h2', { text: title }), extraHead || null, legend || null),
+    chart, tbl, h('div', { class: 'chart-tools' }, toggle));
+}
+
+// ===========================================================================
 // Shell, navigation, routing
 // ===========================================================================
 const NAV = [
-  ['Sales', [['/admin', 'Overview', 'dashboard.view'], ['/admin/orders', 'Orders', 'customers.view'], ['/admin/payments', 'Payment Verification', 'payments.verify'], ['/admin/customers', 'Customers', 'customers.view']]],
-  ['Access', [['/admin/invitations', 'Access Invitations', 'customers.view'], ['/admin/devices', 'Registered Devices', 'customers.view'], ['/admin/licenses', 'Reading Licenses', 'customers.view']]],
-  ['Books', [['/admin/books', 'Books', 'books.manage'], ['/admin/editions', 'Book Editions', 'books.manage']]],
-  ['Monitoring', [['/admin/activity', 'Reading Activity', 'security.view'], ['/admin/security', 'Security Events', 'security.view'], ['/admin/audit', 'Audit Logs', 'audit.view']]],
-  ['Website', [['/admin/website', 'Marketing Website Content', 'content.manage'], ['/admin/whatsapp', 'WhatsApp Settings', 'content.manage']]],
-  ['System', [['/admin/admins', 'Administrators', 'admins.manage'], ['/admin/settings', 'System Settings', 'settings.manage'], ['/admin/account', 'My Account', null]]],
+  ['Sales', [['/admin', 'Overview', 'dashboard.view', 'home'], ['/admin/orders', 'Orders', 'customers.view', 'orders'], ['/admin/payments', 'Payment Verification', 'payments.verify', 'payments'], ['/admin/customers', 'Customers', 'customers.view', 'customers']]],
+  ['Access', [['/admin/invitations', 'Access Invitations', 'customers.view', 'invitations'], ['/admin/devices', 'Registered Devices', 'customers.view', 'devices'], ['/admin/licenses', 'Reading Licenses', 'customers.view', 'licenses']]],
+  ['Books', [['/admin/books', 'Books', 'books.manage', 'books'], ['/admin/editions', 'Book Editions', 'books.manage', 'editions']]],
+  ['Monitoring', [['/admin/activity', 'Reading Activity', 'security.view', 'activity'], ['/admin/security', 'Security Events', 'security.view', 'security'], ['/admin/audit', 'Audit Logs', 'audit.view', 'audit']]],
+  ['Website', [['/admin/website', 'Website Content', 'content.manage', 'website'], ['/admin/whatsapp', 'WhatsApp Settings', 'content.manage', 'whatsapp']]],
+  ['System', [['/admin/admins', 'Administrators', 'admins.manage', 'admins'], ['/admin/settings', 'System Settings', 'settings.manage', 'settings'], ['/admin/account', 'My Account', null, 'account']]],
 ];
 
 function go(path) { history.pushState({}, '', path); route(); }
 addEventListener('popstate', () => route());
 document.addEventListener('click', (e) => {
   const a = e.target.closest('a[data-nav]');
-  if (a && !e.metaKey && !e.ctrlKey) { e.preventDefault(); document.querySelector('.side')?.classList.remove('open'); go(a.getAttribute('href')); }
+  if (a && !e.metaKey && !e.ctrlKey) { e.preventDefault(); document.querySelector('.side')?.classList.remove('open'); document.querySelector('.menu')?.remove(); go(a.getAttribute('href')); }
+  if (!e.target.closest('.menu, .avatar')) document.querySelector('.menu')?.remove();
 });
 
-let mainEl = null;
+let mainEl = null; let contentEl = null; let titleEl = null; let bellDot = null;
+function setAlerts(n) {
+  if (!bellDot) return;
+  bellDot.hidden = !n; bellDot.textContent = n > 99 ? '99+' : String(n);
+}
 function shell() {
   const side = h('aside', { class: 'side' },
-    h('div', { class: 'brand' }, 'Book Management', btn('Menu', () => side.classList.toggle('open'), 'menu-btn')),
+    h('div', { class: 'brand' },
+      h('a', { class: 'logo', href: '/admin', 'data-nav': true }, h('span', { class: 'mark' }, icon('book', 18)), 'BookVault'),
+      btn('Menu', () => side.classList.toggle('open'), 'menu-btn')),
     h('nav', { 'aria-label': 'Dashboard' }, NAV.map(([grp, items]) => {
       const visible = items.filter(([, , p]) => !p || can(p));
-      return visible.length ? [h('div', { class: 'grp', text: grp }), visible.map(([href, label]) => h('a', { href, 'data-nav': true, text: label }))] : [];
+      return visible.length ? [h('div', { class: 'grp', text: grp }), visible.map(([href, label, , ic]) => h('a', { href, 'data-nav': true }, icon(ic), h('span', { text: label })))] : [];
     })));
-  mainEl = h('main', { class: 'main', id: 'main' });
+  titleEl = h('h1');
+  const q = h('input', { type: 'search', placeholder: 'Search customers by name or phone', 'aria-label': 'Search customers' });
+  const search = h('form', { class: 'search', role: 'search' }, icon('search', 18), q);
+  search.addEventListener('submit', (e) => { e.preventDefault(); go(`/admin/customers?q=${encodeURIComponent(q.value.trim())}`); });
+  bellDot = h('span', { class: 'dot' }); bellDot.hidden = true;
+  const bell = can('security.view') ? h('a', { class: 'icon-btn', href: '/admin/security?open=true', 'data-nav': true, 'aria-label': 'Open security events', title: 'Security alerts' }, icon('bell'), bellDot) : null;
+  const settingsBtn = can('settings.manage') ? h('a', { class: 'icon-btn', href: '/admin/settings', 'data-nav': true, 'aria-label': 'System settings', title: 'System settings' }, icon('settings')) : null;
+  const avatar = h('button', { class: 'avatar', type: 'button', 'aria-label': 'Account menu', 'aria-haspopup': 'menu', text: initials(me.name) });
+  avatar.addEventListener('click', () => {
+    const open = document.querySelector('.menu');
+    if (open) return open.remove();
+    mainEl.append(h('div', { class: 'menu', role: 'menu' },
+      h('div', { class: 'who' }, h('strong', { text: me.name }), `${me.email} · ${me.role}`),
+      h('a', { href: '/admin/account', 'data-nav': true, role: 'menuitem' }, 'My account'),
+      h('button', { type: 'button', role: 'menuitem', onclick: logout }, 'Sign out')));
+  });
+  contentEl = h('div', { class: 'content', id: 'content' });
+  mainEl = h('main', { class: 'main', id: 'main' }, h('header', { class: 'topbar' }, titleEl, search, settingsBtn, bell, avatar), contentEl);
   root.replaceChildren(h('div', { class: 'shell' }, side, mainEl));
+  if (can('security.view')) api('GET', '/api/admin/security-events?open=true&limit=100').then((r) => setAlerts(r.events.length)).catch(() => {});
 }
 
 function page(title, ...content) {
-  document.title = `${title} · Book Management`;
+  document.title = `${title} · BookVault`;
+  titleEl.textContent = title;
   for (const a of document.querySelectorAll('.side nav a')) {
     const href = a.getAttribute('href');
     const active = href === '/admin' ? location.pathname === '/admin' : location.pathname.startsWith(href);
     if (active) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
   }
   const nodes = [
-    h('div', { class: 'topbar' }, h('h1', { text: title }),
-      h('div', { class: 'who' }, h('span', { text: `${me.name} · ${me.role}` }), btn('Sign out', logout))),
     me.mfaRequiredButMissing ? h('div', { class: 'warnbar' }, 'Two-factor authentication is required. ', link('/admin/account', 'Set it up now.')) : null,
     ...content,
   ];
-  mainEl.replaceChildren(...nodes.flat(Infinity).filter((c) => c !== null && c !== undefined && c !== false));
+  contentEl.replaceChildren(...nodes.flat(Infinity).filter((c) => c !== null && c !== undefined && c !== false));
+  window.scrollTo(0, 0);
 }
 
 async function route() {
@@ -281,7 +480,7 @@ function renderLogin() {
       return boot();
     },
   });
-  root.replaceChildren(h('main', { class: 'login' }, h('div', { class: 'card' }, h('h1', { text: 'Book Management' }), h('p', { class: 'hint', text: 'Sign in to manage books, customers and access.' }), form)));
+  root.replaceChildren(h('main', { class: 'login' }, h('div', { class: 'card' }, h('div', { class: 'brand' }, h('span', { class: 'logo' }, h('span', { class: 'mark' }, icon('book', 18)), 'BookVault')), h('h1', { text: 'Welcome back' }), h('p', { class: 'hint', text: 'Sign in to manage books, customers and access.' }), form)));
   root.querySelector('input').focus();
 }
 
@@ -290,7 +489,7 @@ function renderMfa() {
     submit: 'Verify', columns: false,
     onSubmit: async (v) => { const r = await api('POST', '/api/admin/auth/mfa', v); csrf = r.csrf; return boot(); },
   });
-  root.replaceChildren(h('main', { class: 'login' }, h('div', { class: 'card' }, h('h1', { text: 'Two-factor authentication' }), h('p', { class: 'hint', text: 'Enter the code from your authenticator app.' }), form)));
+  root.replaceChildren(h('main', { class: 'login' }, h('div', { class: 'card' }, h('div', { class: 'brand' }, h('span', { class: 'logo' }, h('span', { class: 'mark' }, icon('book', 18)), 'BookVault')), h('h1', { text: 'Two-factor authentication' }), h('p', { class: 'hint', text: 'Enter the code from your authenticator app.' }), form)));
   root.querySelector('input').focus();
 }
 
@@ -305,21 +504,111 @@ async function logout() {
 async function viewOverview() {
   const d = await api('GET', '/api/admin/overview');
   const m = d.metrics;
-  const tiles = [
-    ['Total books', m.total_books], ['Total orders', m.total_orders], ['Verified payments', m.verified_payments], ['Pending payments', m.pending_payments, '/admin/payments'],
-    ['Registered customers', m.registered_customers], ['Active invitations', m.active_invitations], ['Activated customers', m.activated_customers],
-    ['Active reading licenses', m.active_licenses], ['Suspended accounts', m.suspended_accounts], ['Revoked access', m.revoked_access], ['Open security events', m.open_security_events, '/admin/security?open=true'],
+  setAlerts(m.open_security_events);
+  const cur = d.currency;
+  const rev = d.revenue.find((r) => r.currency === cur) || { verified: '0', pending: '0', pending_count: 0 };
+  const money = (v) => fmtMoney(v || 0, cur);
+  const compact = (v) => { try { return new Intl.NumberFormat(undefined, { notation: 'compact', maximumFractionDigits: 1 }).format(v); } catch { return String(v); } };
+
+  // --- Revenue cards -------------------------------------------------------
+  const cards = h('section', { class: 'span2' },
+    h('div', { class: 'sec-head' }, h('h2', { text: 'Sales' }), link('/admin/orders', 'See all')),
+    h('div', { class: 'paycards' },
+      h('a', { class: 'paycard hot', href: '/admin/orders?status=PAID', 'data-nav': true },
+        h('div', {}, h('div', { class: 'k', text: 'Verified revenue' }), h('div', { class: 'v', text: money(rev.verified) })),
+        h('div', { class: 'row' }, h('div', {}, 'Paid orders', h('strong', { text: String(m.verified_payments) })), h('div', {}, 'Active readers', h('strong', { text: String(m.active_licenses) }))),
+        h('div', { class: 'foot' }, h('span', { text: `${m.total_books} book${m.total_books === 1 ? '' : 's'} on sale` }), icon('arrow'))),
+      h('a', { class: 'paycard', href: '/admin/payments', 'data-nav': true },
+        h('div', {}, h('div', { class: 'k', text: 'Awaiting verification' }), h('div', { class: 'v', text: money(rev.pending) })),
+        h('div', { class: 'row' }, h('div', {}, 'Pending payments', h('strong', { text: String(m.pending_payments) })), h('div', {}, 'Open invitations', h('strong', { text: String(m.active_invitations) }))),
+        h('div', { class: 'foot' }, h('span', { text: m.pending_payments ? 'Verify payments' : 'All caught up' }), icon('arrow')))));
+
+  // --- Recent transactions -------------------------------------------------
+  const txIcon = (s) => (s === 'VERIFIED' ? h('span', { class: 'ico ok' }, icon('check')) : s === 'REJECTED' ? h('span', { class: 'ico bad' }, icon('x')) : h('span', { class: 'ico' }, icon('clock')));
+  const recent = h('section', { class: 'card' },
+    h('div', { class: 'sec-head' }, h('h2', { text: 'Recent Transactions' }), link('/admin/orders', 'See all')),
+    d.recentPayments.length ? h('ul', { class: 'tx' }, d.recentPayments.map((p) => h('li', {},
+      txIcon(p.status),
+      h('div', { class: 't' }, h('strong', {}, link(`/admin/orders/${p.order_id}`, p.full_name)), h('span', { text: `${p.method} · ${new Date(p.at).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}` })),
+      h('div', { class: `amt${p.status === 'VERIFIED' ? ' plus' : ''}`, text: `${p.status === 'VERIFIED' ? '+' : ''}${fmtMoney(p.amount, p.currency)}` }))))
+      : h('p', { class: 'chart-empty', text: 'No payments yet.' }));
+
+  // --- Weekly activity (grouped bars) --------------------------------------
+  const days = d.weekly.map((w) => new Date(`${w.day}T00:00:00`));
+  const series = [
+    { name: 'New orders', color: SERIES[0], values: d.weekly.map((w) => w.orders) },
+    { name: 'Payments verified', color: SERIES[1], values: d.weekly.map((w) => w.verified) },
   ];
-  page('Overview',
-    h('div', { class: 'metrics' }, tiles.map(([k, v, href]) => h('div', { class: 'metric' }, h('div', { class: 'v', text: String(v) }), href ? link(href, k) : h('div', { class: 'k', text: k })))),
-    h('div', { class: 'grid2' },
-      h('section', { class: 'card' }, h('h2', { text: 'Recent security events' }),
-        table([{ label: 'Event', render: (r) => r.event_type.replace(/_/g, ' ') }, { label: 'Severity', render: (r) => badge(r.severity) }, { label: 'Customer', key: 'customer' }, { label: 'When', render: (r) => fmtDate(r.created_at) }], d.recentSecurity, 'No security events.'),
-        h('p', {}, link('/admin/security', 'All security events'))),
-      h('section', { class: 'card' }, h('h2', { text: 'Recent customer activity' }),
-        table([{ label: 'Activity', render: (r) => r.event_type.replace(/_/g, ' ').toLowerCase() }, { label: 'Customer', key: 'customer' }, { label: 'Book', key: 'book' }, { label: 'When', render: (r) => fmtDate(r.created_at) }], d.recentActivity, 'No activity yet.'),
-        h('p', {}, link('/admin/activity', 'All reading activity')))),
-    can('customers.manage') ? h('p', {}, link('/admin/orders/new', '+ Register a customer and order')) : null);
+  const legend = h('div', { class: 'legend' }, series.map((s) => { const i = h('i'); i.style.background = s.color; return h('span', {}, i, s.name); }));
+  const weekly = chartCard({
+    title: 'Weekly Activity', cls: 'span2', legend,
+    chart: groupedBarChart({ labels: days.map((x) => x.toLocaleDateString(undefined, { weekday: 'short' })), fullLabels: days.map((x) => x.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'short' })), series }),
+    tableCols: [{ label: 'Day', render: (r) => r.label }, { label: 'New orders', key: 'orders' }, { label: 'Payments verified', key: 'verified' }, { label: 'Activations', key: 'activations' }],
+    tableRows: d.weekly.map((w, i) => ({ ...w, label: days[i].toLocaleDateString() })),
+  });
+
+  // --- Licences by status (segmented bar, status colours + glyph + label) ----
+  const ST = {
+    ACTIVE: ['Active', 'var(--st-good)', '✓'], PENDING_ACTIVATION: ['Not yet activated', 'var(--st-warning)', '…'],
+    SUSPENDED: ['Suspended', 'var(--st-serious)', '!'], REVOKED: ['Revoked', 'var(--st-critical)', '×'], EXPIRED: ['Expired', 'var(--st-neutral)', '–'],
+  };
+  const counts = Object.keys(ST).map((k) => [k, d.licenseStatus.find((x) => x.status === k)?.n || 0]);
+  const totalLic = counts.reduce((a, [, n]) => a + n, 0);
+  const seg = h('div', { class: 'segbar', role: 'img', 'aria-label': counts.map(([k, n]) => `${ST[k][0]} ${n}`).join(', ') });
+  for (const [k, n] of counts) {
+    if (!n) continue;
+    const part = h('div', { title: `${ST[k][0]}: ${n}` });
+    part.style.flex = String(n); part.style.background = ST[k][1];
+    seg.append(part);
+  }
+  const licences = h('section', { class: 'card' },
+    h('div', { class: 'sec-head' }, h('h2', { text: 'Reading Licences' }), link('/admin/licenses', 'Manage')),
+    totalLic ? [seg, h('ul', { class: 'status-list' }, counts.map(([k, n]) => {
+      const g = h('span', { class: 'glyph', text: ST[k][2], 'aria-hidden': 'true' }); g.style.background = ST[k][1];
+      return h('li', {}, g, h('span', { text: ST[k][0] }), h('b', { text: `${n} · ${Math.round((n / totalLic) * 100)}%` }));
+    }))] : h('p', { class: 'chart-empty', text: 'No licences yet. They appear when a payment is verified.' }));
+
+  // --- Quick actions (recent customers) ------------------------------------
+  const quick = h('section', { class: 'card' },
+    h('div', { class: 'sec-head' }, h('h2', { text: 'Quick Access' }), link('/admin/customers', 'All customers')),
+    d.recentCustomers.length ? h('div', { class: 'people' }, d.recentCustomers.map((c) => h('a', { class: 'person', href: `/admin/customers/${c.id}`, 'data-nav': true },
+      h('span', { class: 'avatar lg', 'aria-hidden': 'true', text: initials(c.full_name) }), h('span', { class: 'n', text: c.full_name }), h('span', { class: 'r', text: c.status.replace(/_/g, ' ').toLowerCase() }))))
+      : h('p', { class: 'hint', text: 'Customers you register appear here.' }),
+    can('customers.manage') ? h('div', { class: 'quick-row' }, h('span', { class: 'pill', text: 'New sale on WhatsApp?' }),
+      h('a', { class: 'btn btn-primary', href: '/admin/orders/new', 'data-nav': true }, icon('plus', 18), 'Register order')) : null);
+
+  // --- Revenue history (area, single series) --------------------------------
+  const months = d.monthly.map((x) => new Date(`${x.month}-01T00:00:00`));
+  const revenueVals = d.monthly.map((x) => Number(x.amount));
+  const history = chartCard({
+    title: 'Revenue History', cls: 'span2',
+    extraHead: h('span', { class: 'hint', text: `Verified payments, ${cur}` }),
+    chart: areaChart({
+      labels: months.map((x) => x.toLocaleDateString(undefined, { month: 'short' })),
+      fullLabels: months.map((x) => x.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })),
+      values: revenueVals, color: SERIES[0], format: (v, axis) => (axis ? compact(v) : money(v)),
+    }),
+    tableCols: [{ label: 'Month', key: 'label' }, { label: `Revenue (${cur})`, key: 'amount' }],
+    tableRows: d.monthly.map((x, i) => ({ label: months[i].toLocaleDateString(undefined, { month: 'long', year: 'numeric' }), amount: money(x.amount) })),
+  });
+
+  // --- Totals and recent activity --------------------------------------------
+  const tiles = [
+    ['Registered customers', m.registered_customers, '/admin/customers'], ['Activated customers', m.activated_customers, '/admin/customers?status=ACTIVE'],
+    ['Total orders', m.total_orders, '/admin/orders'], ['Active invitations', m.active_invitations, '/admin/invitations?status=PENDING'],
+    ['Suspended accounts', m.suspended_accounts, '/admin/customers?status=SUSPENDED'], ['Revoked access', m.revoked_access, '/admin/licenses?status=REVOKED'],
+    ['Open security events', m.open_security_events, '/admin/security?open=true'],
+  ];
+  const totals = h('section', { class: 'span3' }, h('div', { class: 'metrics' },
+    tiles.map(([k, v, href]) => h('a', { class: 'metric', href, 'data-nav': true }, h('div', { class: 'v', text: String(v) }), h('div', { class: 'k', text: k })))));
+
+  const lists = h('div', { class: 'grid2 span3' },
+    h('section', { class: 'card' }, h('div', { class: 'sec-head' }, h('h2', { text: 'Security Alerts' }), link('/admin/security', 'See all')),
+      table([{ label: 'Event', render: (r) => r.event_type.replace(/_/g, ' ').toLowerCase() }, { label: 'Severity', render: (r) => badge(r.severity) }, { label: 'Customer', key: 'customer' }, { label: 'When', render: (r) => fmtDate(r.created_at) }], d.recentSecurity, 'No security events.')),
+    h('section', { class: 'card' }, h('div', { class: 'sec-head' }, h('h2', { text: 'Customer Activity' }), link('/admin/activity', 'See all')),
+      table([{ label: 'Activity', render: (r) => r.event_type.replace(/_/g, ' ').toLowerCase() }, { label: 'Customer', key: 'customer' }, { label: 'Book', key: 'book' }, { label: 'When', render: (r) => fmtDate(r.created_at) }], d.recentActivity, 'No activity yet.')));
+
+  page('Overview', h('div', { class: 'dash' }, cards, recent, weekly, licences, quick, history, totals, lists));
 }
 
 // ===========================================================================

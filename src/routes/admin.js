@@ -50,7 +50,35 @@ export function adminRoutes(ctx) {
       `SELECT e.id, e.event_type, e.created_at, c.full_name AS customer, b.title AS book
          FROM reading_events e LEFT JOIN customers c ON c.id=e.customer_id LEFT JOIN books b ON b.id=e.book_id
         ORDER BY e.created_at DESC LIMIT 8`);
-    res.json({ metrics: m, recentSecurity: security, recentActivity: activity });
+    // Chart data. Money is summed per currency; charts use the currency with the most revenue.
+    const { rows: revenue } = await pool.query(
+      `SELECT currency, sum(amount) FILTER (WHERE status='VERIFIED')::text AS verified, sum(amount) FILTER (WHERE status='PENDING')::text AS pending,
+              count(*) FILTER (WHERE status='PENDING')::int AS pending_count
+         FROM payments GROUP BY currency ORDER BY sum(amount) FILTER (WHERE status='VERIFIED') DESC NULLS LAST`);
+    const currency = revenue[0]?.currency || 'KES';
+    const { rows: weekly } = await pool.query(
+      `SELECT to_char(d, 'YYYY-MM-DD') AS day,
+              (SELECT count(*) FROM orders o WHERE o.created_at >= d AND o.created_at < d + interval '1 day')::int AS orders,
+              (SELECT count(*) FROM payments p WHERE p.status='VERIFIED' AND p.verified_at >= d AND p.verified_at < d + interval '1 day')::int AS verified,
+              (SELECT count(*) FROM reading_licenses l WHERE l.activated_at >= d AND l.activated_at < d + interval '1 day')::int AS activations
+         FROM generate_series(date_trunc('day', now()) - interval '6 days', date_trunc('day', now()), interval '1 day') d ORDER BY d`);
+    const { rows: monthly } = await pool.query(
+      `SELECT to_char(m, 'YYYY-MM') AS month,
+              COALESCE((SELECT sum(amount) FROM payments p WHERE p.status='VERIFIED' AND p.currency=$1
+                         AND p.verified_at >= m AND p.verified_at < m + interval '1 month'), 0)::text AS amount
+         FROM generate_series(date_trunc('month', now()) - interval '7 months', date_trunc('month', now()), interval '1 month') m ORDER BY m`, [currency]);
+    const { rows: licenseStatus } = await pool.query(`SELECT status, count(*)::int AS n FROM reading_licenses GROUP BY status`);
+    const { rows: recentPayments } = await pool.query(
+      `SELECT p.id, p.amount, p.currency, p.method, p.reference, p.status, COALESCE(p.verified_at, p.created_at) AS at,
+              o.id AS order_id, c.full_name
+         FROM payments p JOIN orders o ON o.id=p.order_id JOIN customers c ON c.id=o.customer_id
+        ORDER BY COALESCE(p.verified_at, p.created_at) DESC LIMIT 5`);
+    const { rows: recentCustomers } = await pool.query(
+      `SELECT id, full_name, status FROM customers ORDER BY created_at DESC LIMIT 4`);
+    res.json({
+      metrics: m, recentSecurity: security, recentActivity: activity,
+      revenue, currency, weekly, monthly, licenseStatus, recentPayments, recentCustomers,
+    });
   });
 
   // =========================================================================

@@ -49,17 +49,22 @@ export function createApp(ctx) {
   app.disable('x-powered-by');
   app.set('trust proxy', cfg.trustProxy === 'false' ? false : (/^\d+$/.test(cfg.trustProxy) ? Number(cfg.trustProxy) : cfg.trustProxy));
 
-  const hostOf = (u) => (u ? new URL(u).host : null);
-  const hosts = { admin: hostOf(cfg.adminBaseUrl), reader: hostOf(cfg.readerBaseUrl), public: hostOf(cfg.publicBaseUrl) };
-  const separate = { admin: Boolean(hosts.admin && hosts.admin !== hosts.public), reader: Boolean(hosts.reader && hosts.reader !== hosts.public) };
-  // When an app has its own host, it is served only there and other apps are not served on it.
+  // Which application answers a request. In production each app has its own domain and the
+  // Host header decides. For local hosts (localhost / 127.0.0.1) the listening port decides, so
+  // the reader also works when opened from a phone on the LAN via the computer's IP address.
+  const parse = (u) => (u ? new URL(u) : null);
+  const urls = { public: parse(cfg.publicBaseUrl), admin: parse(cfg.adminBaseUrl), reader: parse(cfg.readerBaseUrl) };
+  const sameApp = (a, b) => Boolean(a && b && a.host === b.host);
+  const separate = { admin: Boolean(urls.admin && !sameApp(urls.admin, urls.public)), reader: Boolean(urls.reader && !sameApp(urls.reader, urls.public)) };
+  const isLocal = (u) => ['localhost', '127.0.0.1', '[::1]'].includes(u.hostname);
+  const onApp = (u, req) => (isLocal(u)
+    ? req.socket.localPort === Number(u.port || (u.protocol === 'https:' ? 443 : 80))
+    : req.get('host') === u.host);
+  // When an app has its own host/port, it is served only there and other apps are not served on it.
   const gate = (kind) => (req, res, next) => {
-    const h = req.get('host');
-    if (separate[kind] && h !== hosts[kind]) return next('router');
-    if (kind === 'public') {
-      if ((separate.admin && h === hosts.admin) || (separate.reader && h === hosts.reader)) return next('router');
-    }
-    next();
+    if (kind !== 'public') return separate[kind] && !onApp(urls[kind], req) ? next('router') : next();
+    if ((separate.admin && onApp(urls.admin, req)) || (separate.reader && onApp(urls.reader, req))) return next('router');
+    return next();
   };
   const gated = (kind, router) => { const r = express.Router(); r.use(gate(kind), router); return r; };
 
@@ -114,7 +119,8 @@ export function createApp(ctx) {
     res.set('Service-Worker-Allowed', '/');
     res.type('application/javascript').sendFile(path.join(PUBLIC_DIR, 'reader', 'sw.js'));
   });
-  if (separate.reader) readerPages.get('/', (req, res) => res.redirect('/app'));
+  // On its own host/port, the reader's home page is the book download page.
+  if (separate.reader) readerPages.get('/', readerShell);
   app.use(gated('reader', readerPages));
 
   // ---- Public marketing site --------------------------------------------------------

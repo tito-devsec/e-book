@@ -8,6 +8,7 @@ The platform has four parts in one Node.js service:
 | Part | Default path | Purpose |
 |---|---|---|
 | Marketing website | `/` | Sales page with WhatsApp ordering, edited from the dashboard |
+| Download page | `/` on the reader host | Single-screen book page: DOWNLOAD BOOK installs the reader, START READING opens the book |
 | Management dashboard | `/admin` | Books, customers, orders, payment verification, invitations, devices, licenses, monitoring |
 | Reader PWA | `/app`, `/access/<token>`, `/read/<id>` | Invitation activation, OTP sign-in, installable reader with page-flip |
 | API | `/api/...` | Authenticated, validated JSON API ([docs/API.md](docs/API.md)) |
@@ -55,7 +56,16 @@ npm run dev
 `npm run seed:dev` adds a sample book and the owner account `owner@example.com` /
 `change-me-please-123`. Verification codes are printed in the terminal running `npm run dev`.
 
-Open http://localhost:3000 (website) and http://localhost:3000/admin (dashboard).
+Each application runs on its own port:
+
+| Port | Application |
+|---|---|
+| http://localhost:3000 | Customer site: the book download page, invitations, reader |
+| http://localhost:3001 | Sales website with the WhatsApp order button |
+| http://localhost:3002/admin | Management dashboard |
+
+Add `-- --demo` to the seed command (`npm run seed:dev -- --demo`) to fill the dashboard with
+sample customers and sales.
 PDF uploads need `pdftoppm` (poppler) on the PATH; EPUB works without it.
 
 ## Production

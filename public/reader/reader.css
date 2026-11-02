@@ -17,26 +17,32 @@ body { background: var(--paper); min-height: 100vh; min-height: 100dvh; }
 .otp-input { letter-spacing: .5em; font-size: 1.4rem; text-align: center; font-variant-numeric: tabular-nums; }
 .notice { padding: 12px 14px; border-radius: 8px; background: #fff8e6; border: 1px solid #f3dfae; color: #6a4a00; font-size: .93rem; }
 
-/* ---------- Book preparation page (download page layout) ---------- */
-.prep-top { background: var(--band); padding-bottom: 40px; }
-.prep-bar { max-width: 1120px; margin: 0 auto; padding: 18px 20px; display: flex; justify-content: space-between; align-items: center; }
+/* ---------- Download page: a single full-screen hero, never scrolls ---------- */
+.prep-top { height: 100vh; height: 100dvh; overflow: hidden; display: flex; flex-direction: column;
+  background: linear-gradient(180deg, var(--band) 0%, var(--band) 62%, var(--paper) 62%); }
+.prep-bar { flex: none; width: 100%; max-width: 1120px; margin: 0 auto; padding: calc(14px + env(safe-area-inset-top)) 20px 8px; display: flex; justify-content: space-between; align-items: center; }
 .prep-bar .who { font-weight: 700; color: var(--accent); }
-.prep { max-width: 1000px; margin: 0 auto; padding: 0 20px 40px; display: grid; gap: 28px; }
-.prep-cover img { width: min(240px, 70vw); margin: 0 auto; filter: drop-shadow(0 18px 28px rgba(0, 0, 0, .3)); }
-.prep h1 { font-size: clamp(1.7rem, 5vw, 2.5rem); margin: 8px 0 18px; }
-.prep .author { color: var(--muted); margin-bottom: 20px; }
-.prep .btn-primary { width: 100%; max-width: 300px; min-height: 58px; font-weight: 500; font-size: 1.05rem; letter-spacing: .04em; border-radius: 4px; }
-.prep .start { display: inline-block; margin: 16px 0 22px; font-weight: 700; letter-spacing: .03em; }
-.prep .desc p { color: #666; font-weight: 300; line-height: 1.65; }
-.chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 18px; }
-.chip { font-size: .82rem; font-weight: 600; padding: 4px 10px; border-radius: 999px; background: #e7f4ec; color: var(--ok); }
+.prep { flex: 1; min-height: 0; width: 100%; max-width: 1040px; margin: 0 auto; padding: 0 20px calc(16px + env(safe-area-inset-bottom));
+  display: grid; grid-template-rows: minmax(0, 1fr) auto; gap: 14px; align-items: center; }
+.prep-cover { min-height: 0; height: 100%; display: flex; align-items: center; justify-content: center; }
+.prep-cover img { max-height: 100%; max-width: min(260px, 70vw); width: auto; height: auto; object-fit: contain; filter: drop-shadow(0 16px 24px rgba(0, 0, 0, .28)); }
+.prep h1 { font-size: clamp(1.35rem, 5.2vw, 2.6rem); line-height: 1.15; margin: 0 0 10px; }
+.prep .btn-primary { width: 100%; max-width: 320px; min-height: 54px; font-weight: 500; font-size: 1.05rem; letter-spacing: .04em; border-radius: 4px; }
+.prep .start { display: inline-block; margin: 12px 0 8px; font-weight: 700; letter-spacing: .03em; }
+.prep .author { color: var(--muted); margin: 0 0 6px; }
+.prep .desc { overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; }
+.prep .desc { color: #666; font-weight: 300; line-height: 1.55; margin: 0; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.chip { font-size: .8rem; font-weight: 600; padding: 3px 10px; border-radius: 999px; background: #e7f4ec; color: var(--ok); }
 .chip.wait { background: #fff4dc; color: var(--warn); }
+@media (max-height: 640px) { .prep .desc, .prep .author { display: none; } }
 @media (min-width: 760px) {
-  .prep { grid-template-columns: 320px 1fr; gap: 56px; }
-  .prep-cover img { width: 100%; }
-  .prep h1 { margin-top: 40px; }
+  .prep-top { background: linear-gradient(180deg, var(--band) 0%, var(--band) 48%, var(--paper) 48%); }
+  .prep { grid-template-rows: none; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 56px; }
+  .prep-cover { height: min(70vh, 560px); }
+  .prep-cover img { max-width: 100%; }
+  .prep .desc { -webkit-line-clamp: 4; line-clamp: 4; }
 }
-
 /* ---------- Library ---------- */
 .lib { max-width: 1000px; margin: 0 auto; padding: 20px 16px 48px; }
 .lib-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
