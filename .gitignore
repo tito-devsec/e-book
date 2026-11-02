@@ -3,3 +3,7 @@ var/
 .env
 *.log
 coverage/
+
+# Book files stay on the machine that sells them; they are not stored in git.
+content/*.pdf
+content/*.epub

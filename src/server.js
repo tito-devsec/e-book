@@ -1,11 +1,19 @@
 import { loadConfig } from './config.js';
 import { createContext, createApp } from './app.js';
 import { runMigrations } from './migrate.js';
+import { loadBundledBook } from './services/bundledBook.js';
 
 const cfg = loadConfig();
 const ctx = createContext(cfg);
 
 if (process.env.MIGRATE_ON_START === 'true') await runMigrations(ctx.pool, ctx.logger);
+
+if (!cfg.isProd) {
+  try {
+    const loaded = await loadBundledBook(ctx);
+    if (loaded) console.log(`Loaded the book from content/ (${loaded.page_count} pages). New downloads get this book.`);
+  } catch (err) { console.error('Could not load the book from content/:', err.message); }
+}
 
 const app = createApp(ctx);
 const ports = [...new Set([cfg.port, cfg.readerPort, cfg.adminPort].filter(Boolean))];

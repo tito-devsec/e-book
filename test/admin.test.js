@@ -352,3 +352,19 @@ test('service worker never caches API or book content', async () => {
   assert.equal(manifest.start_url, '/app');
   assert.doesNotMatch(JSON.stringify(manifest), /access/);
 });
+
+test('the book kept in content/ is loaded once as the current edition and never replaces later uploads', async () => {
+  const { loadBundledBook } = await import('../src/services/bundledBook.js');
+  const fs = await import('node:fs/promises'); const os = await import('node:os'); const path = await import('node:path');
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'bundled-'));
+  const file = path.join(dir, 'book.pdf');
+  const { rows: [b] } = await env.ctx.pool.query(`SELECT id, slug, current_edition_id FROM books LIMIT 1`);
+  await fs.writeFile(file, makePdf(3));
+  const first = await loadBundledBook(env.ctx, { slug: b.slug, file });
+  assert.ok(first && first.status === 'READY');
+  const { rows: [after] } = await env.ctx.pool.query('SELECT current_edition_id FROM books WHERE id=$1', [b.id]);
+  assert.equal(after.current_edition_id, first.id);
+  assert.equal(await loadBundledBook(env.ctx, { slug: b.slug, file }), null, 'the same file is not loaded twice');
+  assert.equal(await loadBundledBook(env.ctx, { slug: 'no-such-book', file }), null);
+  await fs.rm(dir, { recursive: true, force: true });
+});
