@@ -203,11 +203,13 @@ function page(title, ...content) {
     const active = href === '/admin' ? location.pathname === '/admin' : location.pathname.startsWith(href);
     if (active) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
   }
-  mainEl.replaceChildren(
+  const nodes = [
     h('div', { class: 'topbar' }, h('h1', { text: title }),
       h('div', { class: 'who' }, h('span', { text: `${me.name} · ${me.role}` }), btn('Sign out', logout))),
     me.mfaRequiredButMissing ? h('div', { class: 'warnbar' }, 'Two-factor authentication is required. ', link('/admin/account', 'Set it up now.')) : null,
-    ...content.flat(Infinity).filter((c) => c !== null && c !== undefined && c !== false));
+    ...content,
+  ];
+  mainEl.replaceChildren(...nodes.flat(Infinity).filter((c) => c !== null && c !== undefined && c !== false));
 }
 
 async function route() {
@@ -485,7 +487,7 @@ async function viewCustomer(id) {
         btn('Sign out all sessions', () => act(() => api('POST', `/api/admin/customers/${id}/revoke-sessions`), { ok: 'Sessions ended' })),
         c.status !== 'REVOKED' ? btn('Revoke all access', async () => { const v = await ask('Revoke all access', 'All licenses are revoked permanently. This cannot be undone; a new order would be needed.', [{ name: 'reason', label: 'Reason', required: true }], 'Revoke access', true); if (v) act(() => api('POST', `/api/admin/customers/${id}/revoke-access`, v), { ok: 'Access revoked' }); }, 'btn btn-small btn-danger') : null) : null),
     edit ? h('section', { class: 'card' }, h('h2', { text: 'Edit customer' }), edit) : null,
-    h('section', { class: 'card' }, h('h2', { text: 'Licenses' }), licensesTable(d.licenses)),
+    h('section', { class: 'card' }, h('h2', { text: 'Licenses' }), licensesTable(d.licenses.map((l) => ({ ...l, full_name: c.full_name, customer_id: id })))),
     h('section', { class: 'card' }, h('h2', { text: 'Orders' }), table([
       { label: 'Order', render: (o) => link(`/admin/orders/${o.id}`, o.reference) },
       { label: 'Books', render: (o) => (o.books || []).map((b) => b.title).join(', ') },

@@ -234,10 +234,14 @@ export function adminRoutes(ctx) {
       q(`SELECT o.*, (SELECT json_agg(json_build_object('bookId', b.id, 'title', b.title)) FROM order_items i JOIN books b ON b.id=i.book_id WHERE i.order_id=o.id) AS books,
                 (SELECT json_agg(p ORDER BY p.created_at) FROM payments p WHERE p.order_id=o.id) AS payments
            FROM orders o WHERE o.customer_id=$1 ORDER BY o.created_at DESC`),
-      q(`SELECT l.*, b.title AS book_title FROM reading_licenses l JOIN books b ON b.id=l.book_id WHERE l.customer_id=$1 ORDER BY l.created_at DESC`),
+      q(`SELECT l.*, b.title AS book_title, o.reference AS order_reference,
+                (SELECT count(*) FROM device_authorizations da JOIN registered_devices dv ON dv.id=da.device_id WHERE da.license_id=l.id AND da.status='ACTIVE' AND dv.status='ACTIVE')::int AS active_devices
+           FROM reading_licenses l JOIN books b ON b.id=l.book_id JOIN orders o ON o.id=l.order_id WHERE l.customer_id=$1 ORDER BY l.created_at DESC`),
       q(`SELECT i.id, i.status, i.token_hint, i.expires_at, i.opened_at, i.consumed_at, i.created_at, i.license_id, b.title AS book_title
            FROM invitations i JOIN books b ON b.id=i.book_id WHERE i.customer_id=$1 ORDER BY i.created_at DESC`),
       q(`SELECT d.id, d.browser, d.os, d.device_category, d.status, d.registered_at, d.last_seen_at, d.revoked_at, d.revoked_reason,
+                (SELECT string_agg(b.title, ', ') FROM device_authorizations da JOIN reading_licenses l ON l.id=da.license_id JOIN books b ON b.id=l.book_id
+                  WHERE da.device_id=d.id AND da.status='ACTIVE') AS books,
                 (SELECT count(*) FROM reading_sessions s WHERE s.device_id=d.id AND s.ended_at IS NULL AND s.expires_at > now())::int AS active_sessions
            FROM registered_devices d WHERE d.customer_id=$1 ORDER BY d.registered_at DESC`),
       q(`SELECT e.event_type, e.created_at, e.details, b.title AS book FROM reading_events e LEFT JOIN books b ON b.id=e.book_id

@@ -222,6 +222,7 @@ export function createAccess({ pool, cfg, settings, events, otpDelivery, logger 
     const policy = await settings.policy();
     const token = randomToken(32);
     const csrf = randomToken(24);
+    await db.query('UPDATE registered_devices SET last_seen_at=now() WHERE id=$1', [deviceId]);
     // One session per device: end older sessions on this device.
     await db.query(`UPDATE reading_sessions SET ended_at=now(), end_reason='ROTATED' WHERE device_id=$1 AND ended_at IS NULL`, [deviceId]);
     const { rows: [s] } = await db.query(
