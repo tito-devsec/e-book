@@ -1,0 +1,13 @@
+Copyright (c) 2026 tito-devsec. All rights reserved.
+
+This software and its source code are proprietary and confidential. No part of it may be
+copied, modified, distributed, sublicensed, or used to provide a service to third parties
+without prior written permission from the copyright holder.
+
+Third-party open-source dependencies are licensed under their own terms, listed in
+package.json and node_modules.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
+INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR
+PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE
+FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY ARISING FROM THE USE OF THE SOFTWARE.

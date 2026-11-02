@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: bookapp
+          POSTGRES_PASSWORD: bookapp
+          POSTGRES_DB: bookapp_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U bookapp" --health-interval 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: sudo apt-get update && sudo apt-get install -y poppler-utils
+      - run: npm ci
+      - run: npm test
+        env:
+          TEST_DATABASE_URL: postgres://bookapp:bookapp@localhost:5432/bookapp_test
+      - name: Dependency vulnerability scan
+        run: npm audit --omit=dev --audit-level=high

@@ -21,7 +21,7 @@ import { customerRoutes } from './routes/customer.js';
 import { readerRoutes } from './routes/reader.js';
 import { adminAuthRoutes } from './routes/adminAuth.js';
 import { adminRoutes } from './routes/admin.js';
-import { siteRoutes } from './routes/site.js';
+import { siteRoutes, coverRoutes } from './routes/site.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 export const PUBLIC_DIR = path.resolve(here, '..', 'public');
@@ -88,6 +88,8 @@ export function createApp(ctx) {
   app.use('/static/site', gated('public', express.static(path.join(PUBLIC_DIR, 'site'), staticOpts)));
   app.use('/static/admin', gated('admin', express.static(path.join(PUBLIC_DIR, 'admin'), staticOpts)));
   app.use('/static/reader', gated('reader', express.static(path.join(PUBLIC_DIR, 'reader'), staticOpts)));
+
+  app.use(coverRoutes(ctx));
 
   // ---- Admin SPA ----------------------------------------------------------------
   const adminShell = (req, res) => { res.set('Cache-Control', 'no-store'); res.sendFile(path.join(PUBLIC_DIR, 'admin', 'index.html')); };
