@@ -21,10 +21,11 @@ The customer site and the dashboard run on separate domains in production
 2. The customer pays (for example M-PESA or a bank transfer).
 3. The owner registers the order in the dashboard and verifies the payment reference.
 4. The owner clicks **Generate Access Link** and sends the private link on WhatsApp.
-5. The customer opens the link and confirms their WhatsApp number with a one-time code.
-6. The invitation is consumed, this browser is registered, and the book page opens.
-7. **DOWNLOAD BOOK** installs the reader app; **START READING** opens the book (offering installation first).
-8. The installed app opens straight to the book. The original file never leaves private storage.
+5. The customer opens the link on the device they will read on. The link is used up immediately
+   (it opens only once), this device is registered, and the download page is shown once.
+6. **DOWNLOAD BOOK** / **START READING** show one **Add to your device** button.
+7. The “My Books” app opens straight to the book every day. The original file never leaves private storage.
+8. New phone or lost app: the owner sends a new link. (WhatsApp codes can be turned on in settings.)
 
 PDF books are rendered to page images on the server; each page a buyer opens is stamped with
 their name, masked phone number and a trace code, so a leaked screenshot shows whose copy it was.
@@ -125,6 +126,10 @@ scripts/        migrate, create-admin, seed-dev
 test/           acceptance tests
 docs/           documentation
 ```
+
+## Credits
+
+Icons: [UIcons by Flaticon](https://www.flaticon.com/uicons), used under the Flaticon licence with attribution.
 
 ## License
 

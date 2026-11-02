@@ -61,7 +61,9 @@ their access and see the new edition. You can switch back to an older edition un
 5. In the window that opens, click **Send via WhatsApp** (opens WhatsApp with the message ready),
    or copy the message. **The link is shown only once.**
 
-The customer opens the link, confirms their number with a code, and starts reading.
+The customer opens the link on the device they will read on: the book is activated at once (no code),
+the download page is shown once, they add the book to their device and read in the “My Books” app.
+The link opens only once.
 
 ### When something goes wrong
 
@@ -70,7 +72,7 @@ The customer opens the link, confirms their number with a code, and starts readi
 | Link expired or lost | Order page → *Generate new access link*, or **Access Invitations** → *Reissue*. The old link stops working. |
 | Customer typed the wrong number when ordering | Customer page → change the WhatsApp number (pending invitations are cancelled), then generate a new link |
 | Customer already activated and asks for the link again | They don't need it: they open the reader app or the customer site and sign in with their number |
-| Customer has a new phone | They sign in on the new phone; they can move access themselves up to the monthly limit. Otherwise approve it under **Registered Devices** |
+| Customer has a new phone or lost the app | Order page or **Reading Licenses** → *New link*. Opening it moves the book to the new device; the old one stops working |
 | Customer wants two devices | **Reading Licenses** → *Devices allowed* → 2 |
 | Refund | **Reading Licenses** → *Revoke* (or customer page → *Revoke all access*) |
 | Suspected sharing | Customer page → *Suspend access*, review **Security Events**, then reactivate or revoke |
@@ -100,11 +102,12 @@ The customer opens the link, confirms their number with a code, and starts readi
 | Wrong code attempts allowed | 5 | Per code |
 | Codes per hour | 5 | Per customer |
 | Seconds between code requests | 60 | |
-| Reading session length | 168 h (7 days) | After this, the customer confirms their number again |
-| Sign out after inactivity | 4320 min (3 days) | |
+| Reading session length | 720 h (30 days), renewed while in use | The app stays signed in as long as it is used |
+| Sign out after inactivity | 43200 min (30 days) | After this, the customer needs a new link |
 | Default devices per purchase | 1 | |
 | Moving access to a new device | Customer can move it | Or *Requires my approval* |
 | Self-service device moves per 30 days | 2 | After this, moves need your approval |
 | Default license duration | none | |
 | Reader requests per minute | 120 | Above this, reading pauses briefly and an alert is raised |
+| Ask for a WhatsApp code when opening a link | No | Off: links open once with no code. On: customers confirm their number with a code and can sign in again with a code |
 | Reading only in the installed app | Yes | Customers must add the reader to their device before reading; the download page expires once it is installed |

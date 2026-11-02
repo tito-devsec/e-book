@@ -120,3 +120,14 @@ body { background: var(--paper); min-height: 100vh; min-height: 100dvh; }
 .mark { background: #fff1b8; }
 
 @media print { body * { display: none !important; } body::after { content: "Printing is not available for protected books."; display: block !important; } }
+
+/* Flaticon UIcons */
+.fi { display: inline-flex; align-items: center; justify-content: center; line-height: 1; vertical-align: -0.12em; }
+.ibtn .fi { font-size: 1.15rem; }
+.panel .lock .fi { font-size: 1.35rem; color: var(--accent); }
+.btn .fi { font-size: 1.05em; }
+.btn-add { min-height: 56px; font-size: 1.08rem; }
+.steps .fi { margin: 0 2px; }
+.chip .fi { font-size: .9em; }
+.credit { margin-top: 16px; }
+.credit a { color: inherit; }

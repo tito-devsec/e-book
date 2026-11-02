@@ -241,7 +241,7 @@ test('reader: chapter navigation, progress and bookmarks', async () => {
   assert.equal(tampered.status, 401);
   const { rows } = await env.ctx.pool.query(`SELECT event_type FROM reading_events WHERE customer_id=$1`, [o.customerId]);
   const types = new Set(rows.map((r) => r.event_type));
-  for (const t of ['INVITATION_OPENED', 'OTP_REQUESTED', 'OTP_VERIFIED', 'DEVICE_REGISTERED', 'LICENSE_ACTIVATED', 'READER_OPENED', 'CHAPTER_ACCESSED']) {
+  for (const t of ['INVITATION_OPENED', 'DEVICE_REGISTERED', 'LICENSE_ACTIVATED', 'APP_INSTALLED', 'READER_OPENED', 'CHAPTER_ACCESSED']) {
     assert.ok(types.has(t), `event ${t}`);
   }
 });

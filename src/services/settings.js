@@ -14,6 +14,7 @@ export const POLICY_SCHEMA = {
   default_license_duration_days: { type: 'int', min: 1, max: 36500, nullable: true },
   content_requests_per_minute: { type: 'int', min: 20, max: 2000 },
   require_app_install: { type: 'bool' },
+  require_whatsapp_code: { type: 'bool' },
 };
 
 export const WEBSITE_KEYS = ['site', 'whatsapp'];

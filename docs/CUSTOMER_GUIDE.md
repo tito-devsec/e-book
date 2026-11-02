@@ -5,14 +5,14 @@
 ## Getting your book
 
 1. After your payment is confirmed, you receive a private link on WhatsApp.
-2. Open the link. Enter the WhatsApp number you ordered with and tap **Send my code**.
-3. A 6-digit code arrives on WhatsApp. Enter it and tap **Activate my book**.
-4. Your book page opens. Tap **DOWNLOAD BOOK** (or **START READING**) and add the reader to your
-   device. This step is required: the book opens only in the app.
-5. Open **My Books** from your home screen or app list. Your book opens straight away.
+2. Open the link **on the phone or computer you will read on**. Your book page opens straight away.
+3. Tap **DOWNLOAD BOOK** (or **START READING**), then **Add to your device**.
+   On iPhone: tap Share, then **Add to Home Screen**, then **Add**.
+4. Open **My Books** from your home screen or app list. Your book opens, every day.
 
-The invitation link works once, for you only, and the download page expires as soon as the app is
-installed. The book cannot be shared.
+The link opens only once and the download page is shown only once. If you open the link again,
+or share it, it says it has already been opened. The book cannot be shared.
+
 
 ## Reading
 
@@ -32,25 +32,20 @@ You need an internet connection to read. Your book cannot be downloaded as a fil
 - **Installed app**: tap **My Books** on your home screen or desktop.
 - **Browser**: go to the reader address you were given (for example `books.example.com`).
 
-If you are asked to sign in, enter your WhatsApp number and the code you receive. You never need
-to buy again or ask for a new link.
+You stay signed in as long as you keep using the app. You never need to buy again.
 
 ## New phone or computer
 
-Sign in on the new device with your WhatsApp number. If the book is registered on another
-device, choose **Use this device instead**. The old device stops showing the book.
-
-**iPhone users:** the app on your home screen is separate from Safari. After adding it to your
-home screen, open it and sign in once with your number, then choose **Use this device instead**.
+Ask the book owner for a new link and open it on the new device. The book moves to the new device
+and the old one stops showing it.
 
 ## Help
 
 | Message | What it means |
 |---|---|
-| "This invitation has already been activated" | Your access is set up. Open the app or sign in with your number. |
-| "This invitation has expired" | Ask the book owner for a new link. |
-| "This number is not registered for this invitation" | Use the WhatsApp number you ordered with. |
-| "Private book access" | This device isn't signed in. Tap *sign in* and use your number. |
-| "Access on this device was removed" | Your access moved to another device, or the book owner changed it. Sign in again or contact them. |
+| "This link has already been opened" | Links open once. If you added the book, open “My Books”. Otherwise ask the book owner for a new link. |
+| "This link has expired" | Ask the book owner for a new link. |
+| "This download page has expired" | The download page is shown once. Open “My Books”, or tap **Add to your device** if you have not added it yet. |
+| "Private book access" | This device doesn't have the book. Open “My Books” on your own device, or ask the book owner for a new link. |
 
 For anything else, message the book owner on WhatsApp.

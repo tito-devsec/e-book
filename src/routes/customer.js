@@ -1,6 +1,6 @@
 // Customer-facing API: invitation validation and activation, OTP sign-in, device replacement.
 import express from 'express';
-import { validate, badRequest } from '../lib/http.js';
+import { validate, badRequest, HttpError } from '../lib/http.js';
 import { cookieOptions, parseCookies } from '../middleware.js';
 
 export function customerRoutes({ access, cfg, rateLimiter, readerAuth, pool, settings }) {
@@ -23,12 +23,13 @@ export function customerRoutes({ access, cfg, rateLimiter, readerAuth, pool, set
     const { rows: [b] } = id
       ? await pool.query('SELECT * FROM books WHERE id=$1 AND published', [id])
       : await pool.query('SELECT * FROM books WHERE published ORDER BY created_at LIMIT 1');
-    if (!b) return res.json({ book: null });
+    if (!b) return res.json({ book: null, signInWithCode: (await settings.policy()).require_whatsapp_code === true });
     const wa = c.whatsapp || {};
     const msg = (wa.orderMessage || '').replaceAll('{book_title}', b.title);
     res.json({
       book: { id: b.id, title: b.title, subtitle: b.subtitle, author: b.author, description: b.description, hasCover: Boolean(b.cover_storage_key) },
       orderUrl: wa.number ? `https://wa.me/${wa.number.replace(/^\+/, '')}?text=${encodeURIComponent(msg)}` : null,
+      signInWithCode: (await settings.policy()).require_whatsapp_code === true,
     });
   });
 
@@ -47,22 +48,37 @@ export function customerRoutes({ access, cfg, rateLimiter, readerAuth, pool, set
   r.post('/access/activate', limitVerify, async (req, res) => {
     const b = validate(req.body, {
       token: { type: 'string', required: true, max: 100 },
-      challengeId: { type: 'string', required: true, max: 64 },
-      code: { type: 'string', required: true, max: 12 },
+      challengeId: { type: 'string', max: 64 },
+      code: { type: 'string', max: 12 },
       deviceKey: { type: 'object', required: true },
     });
     const result = await access.activate({ ...b, userAgent: req.get('user-agent'), ip: req.ip });
     setSession(res, result.session);
-    res.json({ ok: true, bookId: result.bookId, csrf: result.session.csrf });
+    res.json({ ok: true, bookId: result.bookId, book: result.book, csrf: result.session.csrf });
+  });
+
+  // First launch of the home-screen app on a phone that keeps app storage separate (iPhone).
+  r.post('/access/pair', limitVerify, async (req, res) => {
+    const b = validate(req.body, { token: { type: 'string', required: true, max: 100 }, deviceKey: { type: 'object', required: true } });
+    const result = await access.redeemPairing({ ...b, userAgent: req.get('user-agent'), ip: req.ip });
+    setSession(res, result.session);
+    res.json({ ok: true, csrf: result.session.csrf });
   });
 
   // ---- Returning customers (re-authentication) -----------------------------
+  // Signing in again with a WhatsApp code is available only when the owner turned codes on.
+  // Otherwise a lost app or new phone needs a new link from the owner.
+  const codesOn = async () => (await settings.policy()).require_whatsapp_code === true;
+  const codesOff = () => new HttpError(403, 'SIGN_IN_WITH_LINK', 'Ask the book owner to send you a new link.');
+
   r.post('/auth/request-otp', limitOtp, async (req, res) => {
+    if (!(await codesOn())) throw codesOff();
     const b = validate(req.body, { phone: { type: 'string', required: true, max: 32 } });
     res.json(await access.requestLoginOtp({ phone: b.phone, ip: req.ip }));
   });
 
   r.post('/auth/verify-otp', limitVerify, async (req, res) => {
+    if (!(await codesOn())) throw codesOff();
     const b = validate(req.body, {
       challengeId: { type: 'string', required: true, max: 64 },
       code: { type: 'string', required: true, max: 12 },
@@ -96,6 +112,7 @@ export function customerRoutes({ access, cfg, rateLimiter, readerAuth, pool, set
       csrf: s.session.csrf_token,
       device: { installed: Boolean(s.session.device_installed_at) },
       requireApp: policy.require_app_install !== false,
+      signInWithCode: policy.require_whatsapp_code === true,
       customer: { name: s.session.full_name },
       books: books.map((b) => ({ id: b.id, title: b.title, author: b.author })),
     });

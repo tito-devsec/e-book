@@ -4,12 +4,13 @@
 // installed app opens instantly. It never caches API responses, book content, covers,
 // invitation pages, or anything carrying customer data. Reading always requires the
 // server to authorize the current session, device and license.
-const VERSION = 'reader-shell-v1';
+const VERSION = 'reader-shell-v2';
 const SHELL = [
   '/app',
   '/static/shared/base.css',
   '/static/reader/reader.css',
   '/static/reader/app.js',
+  '/static/uicons/regular/rounded.css',
   '/manifest.webmanifest',
   '/assets/icon-192.png',
   '/assets/icon-512.png',

@@ -1,5 +1,6 @@
 import express from 'express';
 import path from 'node:path';
+import fs from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import multer from 'multer';
 import { HttpError } from './lib/http.js';
@@ -88,6 +89,8 @@ export function createApp(ctx) {
   const staticOpts = { index: false, fallthrough: true, maxAge: cfg.isProd ? '1h' : 0 };
   app.use('/assets', express.static(path.join(PUBLIC_DIR, 'assets'), staticOpts));
   app.use('/static/shared', express.static(path.join(PUBLIC_DIR, 'shared'), staticOpts));
+  // UIcons by Flaticon (icon font, served locally so the Content Security Policy stays strict).
+  app.use('/static/uicons', express.static(path.join(path.dirname(PUBLIC_DIR), 'node_modules', '@flaticon', 'flaticon-uicons', 'css'), { ...staticOpts, maxAge: '30d' }));
   app.use('/static/admin', gated('admin', express.static(path.join(PUBLIC_DIR, 'admin'), staticOpts)));
   app.use('/static/reader', gated('reader', express.static(path.join(PUBLIC_DIR, 'reader'), staticOpts)));
 
@@ -107,9 +110,16 @@ export function createApp(ctx) {
   };
   const readerPages = express.Router();
   readerPages.get(['/access/:token', '/login', '/app', '/library', '/book/:id', '/read/:id', '/denied', '/install'], readerShell);
-  readerPages.get('/manifest.webmanifest', (req, res) => {
-    res.set('Cache-Control', 'no-cache');
-    res.type('application/manifest+json').sendFile(path.join(PUBLIC_DIR, 'reader', 'manifest.webmanifest'));
+  let manifestJson = null;
+  readerPages.get('/manifest.webmanifest', async (req, res) => {
+    manifestJson ??= JSON.parse(await fs.readFile(path.join(PUBLIC_DIR, 'reader', 'manifest.webmanifest'), 'utf8'));
+    const m = { ...manifestJson };
+    // On the one-time download page the app's start URL carries a one-time pairing token so the
+    // home-screen app (separate storage on iPhone) can take over the access once.
+    const pair = typeof req.query.pair === 'string' && /^[A-Za-z0-9_-]{43}$/.test(req.query.pair) ? req.query.pair : null;
+    if (pair) m.start_url = `/app?pair=${pair}`;
+    res.set('Cache-Control', 'no-store');
+    res.type('application/manifest+json').send(JSON.stringify(m));
   });
   readerPages.get('/sw.js', (req, res) => {
     res.set('Cache-Control', 'no-cache');

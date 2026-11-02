@@ -9,6 +9,8 @@ let env; let admin; let bookId;
 before(async () => {
   env = await startServer();
   admin = await loginAdmin(env);
+  // These tests cover the optional WhatsApp-code mode; test/links.test.js covers the default.
+  await admin.request('PUT', '/api/admin/settings', { require_whatsapp_code: true });
   bookId = await createBook(admin);
 });
 after(async () => { await env.close(); });

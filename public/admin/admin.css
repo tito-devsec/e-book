@@ -206,3 +206,10 @@ pre.details { margin: 0; white-space: pre-wrap; font-size: .78rem; color: var(--
   .chart { overflow-x: auto; -webkit-overflow-scrolling: touch; }
   .chart svg { min-width: 520px; }
 }
+
+/* Flaticon UIcons */
+.fi { display: inline-flex; align-items: center; justify-content: center; line-height: 1; }
+.fi::before { line-height: 1; }
+.side nav a .fi { width: 20px; }
+.credit { font-size: .72rem; color: #b2b8c5; padding: 18px 14px 6px; margin: 0; }
+.credit a { color: inherit; }

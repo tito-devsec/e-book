@@ -174,58 +174,77 @@ function route() {
 const isStandalone = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
 
 // ===========================================================================
-// Install (PWA)
+// Add to your device (PWA)
 // ===========================================================================
 let installPrompt = null;
-addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); installPrompt = e; });
-addEventListener('appinstalled', () => { installPrompt = null; });
+const promptWaiters = new Set();
+addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); installPrompt = e; promptWaiters.forEach((fn) => fn()); });
+
+/** Icon from UIcons by Flaticon (regular rounded). */
+function fi(name, label) {
+  const el = h('i', { class: `fi fi-rr-${name}`, 'aria-hidden': label ? null : 'true' });
+  return el;
+}
 
 function platform() {
   const ua = navigator.userAgent;
   if (/iPhone|iPad|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)) return 'ios';
   if (/Android/.test(ua)) return 'android';
   if (/Macintosh/.test(ua) && /Safari/.test(ua) && !/Chrome|Edg/.test(ua)) return 'mac-safari';
-  if (/Firefox/.test(ua)) return 'firefox';
-  return 'desktop';
-}
-
-function installSteps() {
-  switch (platform()) {
-    case 'ios': return ['Tap the Share button (the square with an arrow) in Safari.', 'Scroll down and tap “Add to Home Screen”.', 'Tap “Add”. Open “My Books” from your home screen and sign in with your WhatsApp number.'];
-    case 'android': return ['Open your browser menu (⋮).', 'Tap “Install app” or “Add to Home screen”.', 'Open “My Books” from your home screen.'];
-    case 'mac-safari': return ['In Safari, open the File menu.', 'Choose “Add to Dock”.', 'Open “My Books” from your Dock.'];
-    case 'firefox': return ['Firefox on desktop cannot install web apps.', 'Open this page in Chrome, Edge or Safari to install, or keep reading here in your browser.'];
-    default: return ['Click the install icon at the right of the address bar, or open the browser menu.', 'Choose “Install My Books”.', 'Open “My Books” from your desktop or app list.'];
-  }
+  return 'other';
 }
 
 /** Tell the server this device now has the app; the download page then expires. */
 async function markInstalled() {
   try { await api('POST', '/api/reader/app-installed', undefined, { signed: true }); } catch { /* not signed in yet */ }
 }
-addEventListener('appinstalled', () => { markInstalled().then(() => { if (/^\/(book\/|$)/.test(location.pathname)) route(); }); });
+addEventListener('appinstalled', () => { installPrompt = null; markInstalled().then(() => { if (!isStandalone()) route(); }); });
 
-/** Mandatory "add to your device" step: reading happens only in the installed app. */
-function showInstallModal({ coverUrl, title = 'Add to your device' }) {
-  const close = () => modal.remove();
-  const steps = h('ol', { class: 'steps' }, installSteps().map((s) => h('li', { text: s })));
-  const installBtn = installPrompt ? h('button', {
-    class: 'btn btn-primary btn-block',
-    onclick: async () => {
-      const p = installPrompt; installPrompt = null;
-      p.prompt();
-      const choice = await p.userChoice.catch(() => ({ outcome: 'dismissed' }));
-      close();
-      if (choice.outcome === 'accepted') { await markInstalled(); route(); }
-    },
-  }, 'Add to my device') : null;
-  const modal = h('div', { class: 'modal', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'install-title' },
+/**
+ * Prepare the app link for this device: on iPhone the home-screen app keeps its own storage, so
+ * the app's start URL carries a one-time pairing token that hands this access over on first open.
+ */
+async function prepareAppLink() {
+  try {
+    const { token } = await api('POST', '/api/reader/pairing', undefined, { signed: true });
+    const link = document.querySelector('link[rel="manifest"]');
+    if (link) link.href = `/manifest.webmanifest?pair=${token}`;
+  } catch { /* not signed in */ }
+}
+
+/** The "Add to your device" popup: one direct button wherever the browser allows it. */
+function showAddModal({ coverUrl, title = 'Add to your device' }) {
+  const close = () => { promptWaiters.delete(refresh); modal.remove(); };
+  const note = h('p', { class: 'hint' });
+  const addBtn = h('button', { class: 'btn btn-primary btn-block btn-add' }, fi('download'), ' Add to your device');
+  addBtn.addEventListener('click', async () => {
+    if (!installPrompt) {
+      note.textContent = platform() === 'android'
+        ? 'Your browser did not offer the button yet. Open the browser menu and choose “Add to Home screen”.'
+        : 'Your browser cannot add apps directly. Open this page in Chrome or Edge, or use your browser menu to add it to your home screen.';
+      return;
+    }
+    const p = installPrompt; installPrompt = null;
+    p.prompt();
+    const choice = await p.userChoice.catch(() => ({ outcome: 'dismissed' }));
+    if (choice.outcome === 'accepted') { close(); await markInstalled(); route(); }
+  });
+  // iPhone and iPad: Safari offers no button that a website can trigger, so two short steps are shown.
+  const ios = platform() === 'ios' || platform() === 'mac-safari';
+  const iosSteps = h('ol', { class: 'steps' },
+    h('li', {}, 'Tap ', fi('share'), ' Share in Safari'),
+    h('li', {}, 'Tap ', h('strong', { text: 'Add to Home Screen' }), ', then ', h('strong', { text: 'Add' })));
+  const body = h('div', { class: 'stack' });
+  const refresh = () => body.replaceChildren(ios && !installPrompt ? iosSteps : addBtn, note);
+  promptWaiters.add(refresh);
+  refresh();
+  const modal = h('div', { class: 'modal', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'add-title' },
     h('div', { class: 'panel' },
       coverUrl ? h('img', { src: coverUrl, alt: '' }) : null,
-      h('h1', { id: 'install-title', text: title }),
-      h('p', { class: 'muted', text: 'Your book opens only in the private reader app on this device. Add it now, then open “My Books” to start reading. No file is downloaded and the book cannot be shared.' }),
-      installBtn || steps,
-      h('div', { class: 'stack' }, h('button', { class: 'btn-link', onclick: close }, 'Not now'))));
+      h('h1', { id: 'add-title', text: title }),
+      h('p', { class: 'muted', text: 'Your book opens in the private “My Books” app on this device. It cannot be shared.' }),
+      body,
+      h('button', { class: 'btn-link', onclick: close }, 'Not now')));
   modal.addEventListener('click', (e) => { if (e.target === modal) close(); });
   modal.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); });
   document.body.append(modal);
@@ -296,76 +315,93 @@ async function viewInvitation(tokenInPath) {
   let token = tokenInPath;
   if (tokenInPath === '_') token = sessionStorage.getItem('invite') || '';
   else { sessionStorage.setItem('invite', tokenInPath); history.replaceState({}, '', '/access/_'); }
+  if (!token) return viewNoAccess('used');
 
-  if (!token) return viewDenied('invite');
+  mount(h('div', { class: 'boot' }, h('div', { class: 'spinner', 'aria-label': 'Preparing your book' })));
   let info;
-  try { info = await api('POST', '/api/access/validate-invitation', { token }); } catch (err) { return mount(screen(h('h1', { text: 'Something went wrong' }), h('p', { class: 'muted', text: err.message }))); }
-
-  const messages = {
-    CONSUMED: ['THIS INVITATION HAS ALREADY BEEN ACTIVATED.', 'This private reading invitation belongs to an existing customer and cannot be used again.', 'If you believe this is an error, please contact the book owner.'],
-    EXPIRED: ['This invitation has expired', 'Private invitations are only valid for a limited time.', 'Please contact the book owner for a new invitation.'],
-    REVOKED: ['This invitation is no longer valid', 'It was replaced or cancelled by the book owner.', 'Please use the most recent invitation you received, or contact the book owner.'],
-    INVALID: ['Invitation not found', 'This link is not a valid private reading invitation.', 'Please check that you opened the complete link from your WhatsApp message.'],
-  };
+  try { info = await api('POST', '/api/access/validate-invitation', { token }); } catch (err) { return viewOffline(err); }
   if (info.state !== 'VALID') {
     sessionStorage.removeItem('invite');
-    const [title, line1, line2] = messages[info.state] || messages.INVALID;
-    return mount(h('main', { class: 'screen denied' }, h('div', { class: 'panel' },
-      h('div', { class: 'lock', 'aria-hidden': 'true', text: '🔒' }),
-      h('h1', { text: title }), h('p', { text: line1 }), h('p', { class: 'muted', text: line2 }),
-      h('div', { class: 'stack' }, h('a', { class: 'btn btn-block', href: '/login', 'data-nav': true }, 'I already activated — sign in')))));
+    return viewNoAccess(info.state === 'CONSUMED' ? 'used' : info.state === 'EXPIRED' ? 'expired' : 'invalid');
   }
 
+  const finish = (r) => {
+    csrf = r.csrf;
+    sessionStorage.removeItem('invite');
+    // The link is now used up. Reloading shows the "opened once" screen, never this page again.
+    history.replaceState({}, '', '/');
+    return viewDownloadOnce(r.bookId, r.book);
+  };
+
+  if (!info.codeRequired) {
+    try {
+      const key = await getDeviceKey(true);
+      return finish(await api('POST', '/api/access/activate', { token, deviceKey: key.publicJwk }));
+    } catch (err) {
+      sessionStorage.removeItem('invite');
+      return viewNoAccess(/CONSUMED/.test(err.code || '') ? 'used' : 'invalid');
+    }
+  }
+
+  // The owner turned on WhatsApp codes: confirm the number first.
   const err = errorLine();
   const phone = h('input', { type: 'tel', autocomplete: 'tel', inputmode: 'tel', placeholder: '+254 7XX XXX XXX', required: true, id: 'phone' });
   const btn = h('button', { class: 'btn btn-primary btn-block', type: 'submit' }, 'Send my code');
   const body = h('div');
   let challengeId = null;
-
   const askPhone = h('form', { class: 'stack', novalidate: true },
     h('div', { class: 'field' },
       h('label', { for: 'phone', text: 'Your WhatsApp number' }), phone,
-      h('span', { class: 'hint', text: `This invitation is registered to the number ending ${info.phoneHint.slice(-3)}. We will send a code there.` })),
+      h('span', { class: 'hint', text: `This link is registered to the number ending ${info.phoneHint.slice(-3)}.` })),
     err, btn);
-
-  const sendCode = async () => {
-    const r = await api('POST', '/api/access/request-otp', { token, phone: phone.value });
-    challengeId = r.challengeId;
-  };
+  const sendCode = async () => { challengeId = (await api('POST', '/api/access/request-otp', { token, phone: phone.value })).challengeId; };
   askPhone.addEventListener('submit', async (e) => {
     e.preventDefault(); err.textContent = '';
     setBusy(btn, true, 'Send my code');
     try {
       await sendCode();
       body.replaceChildren(otpForm({
-        label: 'Activate my book',
+        label: 'Open my book',
         onSubmit: async (code) => {
           const key = await getDeviceKey(true);
-          const r = await api('POST', '/api/access/activate', { token, challengeId, code, deviceKey: key.publicJwk });
-          csrf = r.csrf;
-          sessionStorage.removeItem('invite');
-          go(`/book/${r.bookId}`, true);
+          finish(await api('POST', '/api/access/activate', { token, challengeId, code, deviceKey: key.publicJwk }));
         },
         onResend: async () => { try { await sendCode(); toast('A new code is on its way.'); } catch (ex) { toast(ex.message); } },
       }));
     } catch (ex) { err.textContent = ex.message; } finally { setBusy(btn, false, 'Send my code'); }
   });
   body.append(askPhone);
-
   mount(screen(
     info.book.hasCover ? h('img', { class: 'cover-sm', src: `/media/covers/${info.book.id}`, alt: '' }) : null,
-    h('p', { class: 'hint', text: 'Private reading invitation' }),
     h('h1', { text: info.book.title }),
     h('p', { class: 'muted', text: `by ${info.book.author}` }),
-    h('p', { text: 'Your payment has been verified. Confirm your WhatsApp number to activate your personal reading access on this device.' }),
-    body,
-  ));
+    body));
+}
+
+/** Screens for visitors without access: used, expired or invalid links, and the bare app. */
+async function viewNoAccess(kind) {
+  let pub = {};
+  try { pub = await api('GET', '/api/public/book'); } catch { /* offline */ }
+  const texts = {
+    used: ['This link has already been opened', 'Each private link opens only once. If you already added the book, open “My Books” on your home screen. For a new phone, ask the book owner for a new link.'],
+    expired: ['This link has expired', 'Private links are valid for a limited time. Ask the book owner for a new link.'],
+    invalid: ['Link not valid', 'Open the complete link from your WhatsApp message, or ask the book owner for a new one.'],
+    app: ['Open your private link', 'To read in this app, open the link the book owner sent you on WhatsApp. If you need a new one, ask the book owner.'],
+  };
+  const [title, text] = texts[kind] || texts.invalid;
+  mount(h('main', { class: 'screen denied' }, h('div', { class: 'panel' },
+    h('div', { class: 'lock' }, fi(kind === 'app' ? 'link' : 'lock')),
+    h('h1', { text: title }), h('p', { class: 'muted', text }),
+    h('div', { class: 'stack' },
+      pub.signInWithCode ? h('a', { class: 'btn btn-primary btn-block', href: '/login', 'data-nav': true }, 'Sign in with WhatsApp code') : null,
+      pub.orderUrl ? h('a', { class: 'btn btn-block', href: pub.orderUrl, target: '_blank', rel: 'noopener noreferrer' }, fi('shopping-bag'), ' Buy this book on WhatsApp') : null))));
 }
 
 // ===========================================================================
 // Sign in again  (/login)
 // ===========================================================================
-function viewLogin(reason) {
+async function viewLogin(reason) {
+  try { if (!(await api('GET', '/api/public/book')).signInWithCode) return viewNoAccess('app'); } catch { /* fall through */ }
   const err = errorLine();
   const phone = h('input', { type: 'tel', autocomplete: 'tel', inputmode: 'tel', placeholder: '+254 7XX XXX XXX', id: 'phone', required: true });
   const btn = h('button', { class: 'btn btn-primary btn-block', type: 'submit' }, 'Send my code');
@@ -403,7 +439,7 @@ function viewLogin(reason) {
   const lead = { expired: 'Your reading session has ended. Confirm your number to continue reading — no new purchase or invitation is needed.' }[reason]
     || 'Confirm your WhatsApp number to open your books on this device.';
   mount(screen(
-    h('div', { class: 'lock', 'aria-hidden': 'true', text: '🔑' }),
+    h('div', { class: 'lock' }, fi('key')),
     h('h1', { text: 'Sign in to your books' }),
     h('p', { class: 'muted', text: lead }),
     body,
@@ -444,11 +480,21 @@ function replacePrompt({ grantToken, mode }) {
 // Launcher  (/app — PWA start URL)
 // ===========================================================================
 async function viewLauncher() {
+  // The home-screen app may start with a one-time pairing token (see prepareAppLink).
+  const pair = new URLSearchParams(location.search).get('pair');
+  if (pair) history.replaceState({}, '', '/app');
   let s;
   try { s = await loadSession(); } catch (err) { return viewOffline(err); }
+  if (!s.authenticated && pair && /^[A-Za-z0-9_-]{43}$/.test(pair)) {
+    try {
+      const key = await getDeviceKey(true);
+      csrf = (await api('POST', '/api/access/pair', { token: pair, deviceKey: key.publicJwk })).csrf;
+      s = await loadSession();
+    } catch { /* fall through to the no-access screen */ }
+  }
   if (!s.authenticated) {
     if (['DEVICE_REVOKED', 'ACCOUNT_SUSPENDED'].includes(s.code)) return handleAuthError(new ApiError(403, { code: s.code }));
-    return go('/login', true);
+    return s.signInWithCode ? go('/login', true) : viewNoAccess('app');
   }
   if (isStandalone() && !s.device?.installed) await markInstalled();
   if (s.books.length === 1) return go(isStandalone() ? `/read/${s.books[0].id}` : `/book/${s.books[0].id}`, true);
@@ -511,52 +557,55 @@ function downloadPage({ book, coverImg, chips = [], topRight = null, onDownload,
           h('p', { class: 'desc', text: (book.description || book.subtitle || '').replace(/\s+/g, ' ').trim() })))));
 }
 
-async function viewBook(bookId, { session } = {}) {
-  let info; let s = session;
-  try {
-    s ??= await loadSession();
-    if (!s.authenticated) return viewDenied(s.code === 'DEVICE_REVOKED' ? 'device' : 'signin');
-    info = await api('GET', `/api/reader/books/${bookId}`, undefined, { signed: true });
-  } catch (err) { if (await handleAuthError(err)) return; return viewOffline(err); }
+/** The download page, shown exactly once: right after the private link is opened. */
+function viewDownloadOnce(bookId, book) {
   if (isStandalone()) return go(`/read/${bookId}`, true);
-  if (info.installedOnThisDevice) return viewDownloadExpired(info.book);
-
-  const coverImg = h('img', { alt: `${info.book.title} cover` });
+  const coverImg = h('img', { alt: `${book.title} cover` });
   coverFor(bookId).then((u) => { if (u) coverImg.src = u; });
-  const ready = info.preparation === 'READY';
-
+  prepareAppLink();
   mount(downloadPage({
-    book: info.book, coverImg, disabled: !ready,
-    chips: [h('span', { class: ready ? 'chip' : 'chip wait', text: ready ? 'Ready to read' : 'Preparing your book…' }),
-      h('span', { class: 'chip', text: 'Access active on this device' })],
-    topRight: s.books.length > 1 ? h('a', { href: '/library', 'data-nav': true }, 'My books') : h('button', { class: 'btn-link', onclick: logout }, 'Sign out'),
-    onDownload: () => showInstallModal({ coverUrl: coverImg.src }),
-    onStart: () => showInstallModal({ coverUrl: coverImg.src, title: 'Add to your device to start reading' }),
+    book, coverImg,
+    chips: [h('span', { class: 'chip' }, fi('check'), ' Your book is ready')],
+    onDownload: () => showAddModal({ coverUrl: coverImg.src }),
+    onStart: () => showAddModal({ coverUrl: coverImg.src, title: 'Add to your device to start reading' }),
   }));
   onCleanup(revokeBlobs);
 }
 
-/** The download page is single-use: once the app is installed on this device it expires. */
-function viewDownloadExpired(book) {
+/** Any later visit in a browser: the download page was available once and has expired. */
+async function viewBook(bookId, { session } = {}) {
+  let info; let s = session;
+  try {
+    s ??= await loadSession();
+    if (!s.authenticated) return viewNoAccess(s.code === 'DEVICE_REVOKED' ? 'used' : 'app');
+    info = await api('GET', `/api/reader/books/${bookId}`, undefined, { signed: true });
+  } catch (err) { if (await handleAuthError(err)) return; return viewOffline(err); }
+  if (isStandalone()) return go(`/read/${bookId}`, true);
+  if (!s.requireApp) return go(`/read/${bookId}`, true);
+  const installed = info.installedOnThisDevice;
+  if (!installed) prepareAppLink();
   mount(h('main', { class: 'screen denied' }, h('div', { class: 'panel' },
-    h('div', { class: 'lock', 'aria-hidden': 'true', text: '✓' }),
+    h('div', { class: 'lock' }, fi(installed ? 'check' : 'time-past')),
     h('h1', { text: 'This download page has expired' }),
-    h('p', { text: `${book.title} is installed on this device.` }),
-    h('p', { class: 'muted', text: 'Open “My Books” from your home screen or app list to read. The book opens only in the app and cannot be shared.' }),
-    h('div', { class: 'stack' }, h('button', { class: 'btn-link', onclick: logout }, 'Sign out of this browser')))));
+    h('p', { text: installed ? `${info.book.title} is on this device.` : 'The download page opens only once.' }),
+    h('p', { class: 'muted', text: installed
+      ? 'Open “My Books” from your home screen or app list to read. The book opens only in the app and cannot be shared.'
+      : 'If you have not added the book yet, add it now. Otherwise open “My Books” from your home screen.' }),
+    h('div', { class: 'stack' },
+      installed ? null : h('button', { class: 'btn btn-primary btn-block', onclick: () => showAddModal({}) }, fi('download'), ' Add to your device'),
+      h('button', { class: 'btn-link', onclick: logout }, 'Sign out of this browser')))));
 }
 
 // ===========================================================================
-// Home  (/ on the reader's own host or port): the book download page
+// Home  (/ on the customer site)
 // ===========================================================================
 async function viewHome() {
   if (isStandalone()) return go('/app', true);
   let s;
   try { s = await loadSession(); } catch (err) { return viewOffline(err); }
-  if (s.authenticated && s.books.length === 1) return viewBook(s.books[0].id, { session: s });
-  if (s.authenticated && s.books.length > 1) return go('/library', true);
+  if (s.authenticated && s.books.length >= 1) return viewBook(s.books[0].id, { session: s });
 
-  // Visitor without access on this device: show the book, explain how access works.
+  // Visitor without access: show the book and how to get it.
   let info;
   try { info = await api('GET', '/api/public/book'); } catch (err) { return viewOffline(err); }
   if (!info.book) return mount(screen(h('h1', { text: 'Coming soon' }), h('p', { class: 'muted', text: 'The book will be available here shortly.' })));
@@ -567,56 +616,48 @@ async function viewHome() {
     const m = h('div', { class: 'modal', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'access-title' },
       h('div', { class: 'panel' },
         info.book.hasCover ? h('img', { src: `/media/covers/${info.book.id}`, alt: '' }) : null,
-        h('h1', { id: 'access-title', text: 'Get it on your device' }),
-        h('p', { class: 'muted', text: 'This book is private to its buyers. Your copy opens in the protected reader on your own device.' }),
+        h('h1', { id: 'access-title', text: 'Private book' }),
+        h('p', { class: 'muted', text: 'This book is available only to its buyers. After payment you receive a private link on WhatsApp that adds the book to your device.' }),
         h('div', { class: 'stack' },
-          h('a', { class: 'btn btn-primary btn-block', href: '/login', 'data-nav': true, onclick: close }, 'I bought it — sign in with WhatsApp'),
-          h('p', { class: 'hint', text: 'First time? Open the private invitation link you received on WhatsApp after paying.' }),
-          info.orderUrl ? h('a', { class: 'btn btn-block', href: info.orderUrl, target: '_blank', rel: 'noopener noreferrer' }, 'Buy this book on WhatsApp') : null,
+          info.orderUrl ? h('a', { class: 'btn btn-primary btn-block', href: info.orderUrl, target: '_blank', rel: 'noopener noreferrer' }, fi('shopping-bag'), ' Buy this book on WhatsApp') : null,
+          info.signInWithCode ? h('a', { class: 'btn btn-block', href: '/login', 'data-nav': true, onclick: close }, 'I bought it: sign in') : null,
           h('button', { class: 'btn-link', onclick: close }, 'Not now'))));
     m.addEventListener('click', (e) => { if (e.target === m) close(); });
     document.body.append(m);
     m.querySelector('a, button')?.focus();
   };
-  mount(downloadPage({
-    book: info.book, coverImg,
-    topRight: h('a', { href: '/login', 'data-nav': true }, 'Sign in'),
-    onDownload: needAccess, onStart: needAccess,
-  }));
+  mount(downloadPage({ book: info.book, coverImg, onDownload: needAccess, onStart: needAccess }));
 }
 
 // ===========================================================================
 // Installation guide  (/install)
 // ===========================================================================
 function viewInstallGuide() {
-  const sec = (title, steps) => h('div', {}, h('h2', { class: 'label', text: title }), h('ol', { class: 'steps' }, steps.map((s) => h('li', { text: s }))));
   mount(screen(
-    h('h1', { text: 'Install the reader' }),
-    h('p', { class: 'muted', text: 'Installing adds “My Books” to your home screen or desktop. It opens straight to your book. Your book is never downloaded as a file.' }),
-    installPrompt ? h('button', { class: 'btn btn-primary btn-block', onclick: () => showInstallModal({}) }, 'Install Reader') : null,
-    sec('iPhone and iPad (Safari)', ['Tap Share.', 'Tap “Add to Home Screen”.', 'Open “My Books” and sign in with your WhatsApp number.']),
-    sec('Android (Chrome, Edge, Samsung Internet)', ['Tap the menu (⋮).', 'Tap “Install app” or “Add to Home screen”.']),
-    sec('Windows, macOS, ChromeOS (Chrome or Edge)', ['Click the install icon in the address bar.', 'Click “Install”.']),
-    sec('macOS (Safari 17+)', ['File → Add to Dock.']),
-    h('a', { class: 'btn btn-block', href: '/app', 'data-nav': true }, 'Back to my book')));
+    h('h1', { text: 'Add to your device' }),
+    h('p', { class: 'muted', text: '“My Books” goes on your home screen or desktop and opens straight to your book. Your book is never downloaded as a file.' }),
+    h('button', { class: 'btn btn-primary btn-block', onclick: () => showAddModal({}) }, fi('download'), ' Add to your device'),
+    h('a', { class: 'btn btn-block', href: '/app', 'data-nav': true }, 'Back')));
 }
 
 // ===========================================================================
 // Unauthorized access screen  (/denied and any unknown route)
 // ===========================================================================
-function viewDenied(reason) {
+async function viewDenied(reason) {
+  let pub = {};
+  try { pub = await api('GET', '/api/public/book'); } catch { /* offline */ }
   const extra = {
-    device: 'Your book was moved to the reader app or to another device. Open “My Books” to read.',
+    device: 'Your book was moved to the “My Books” app or to another device.',
     suspended: 'Access to this account is currently paused.',
   }[reason];
   mount(h('main', { class: 'screen denied' }, h('div', { class: 'panel' },
-    h('div', { class: 'lock', 'aria-hidden': 'true', text: '🔒' }),
+    h('div', { class: 'lock' }, fi('lock')),
     h('h1', { text: 'Private book access' }),
     h('p', { text: 'This reading space is protected and available only to its authorized purchaser.' }),
     h('p', { text: 'This device does not have permission to access this book.' }),
     extra ? h('p', { class: 'muted', text: extra }) : null,
-    h('p', { class: 'muted', text: 'If you purchased this book, use your original invitation or contact the book owner.' }),
-    h('div', { class: 'stack' }, h('a', { class: 'btn btn-primary btn-block', href: '/login', 'data-nav': true }, 'I purchased this book — sign in')))));
+    h('p', { class: 'muted', text: 'If you purchased this book, open “My Books” on your device, or ask the book owner for a new link.' }),
+    pub.signInWithCode ? h('div', { class: 'stack' }, h('a', { class: 'btn btn-primary btn-block', href: '/login', 'data-nav': true }, 'Sign in with WhatsApp code')) : null)));
 }
 
 // ===========================================================================
@@ -922,7 +963,7 @@ class Reader {
     const close = () => this.closeDrawer();
     const scrim = h('div', { class: 'drawer-scrim', onclick: close });
     const d = h('aside', { class: 'drawer', role: 'dialog', 'aria-label': title },
-      h('header', {}, h('h2', { text: title }), h('button', { class: 'ibtn', 'aria-label': 'Close', onclick: close }, '✕')),
+      h('header', {}, h('h2', { text: title }), h('button', { class: 'ibtn', 'aria-label': 'Close', onclick: close }, fi('cross'))),
       h('div', { class: 'body' }, body));
     d.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); });
     document.body.append(scrim, d);
@@ -1030,8 +1071,9 @@ class Reader {
       h('div', { class: 'label', text: 'Theme' }),
       seg([['light', 'Light'], ['sepia', 'Sepia'], ['dark', 'Dark']], this.theme, (v) => this.setTheme(v)),
       h('p', { class: 'hint', text: 'Keyboard: ← → to turn pages, T contents, B bookmark, F search.' }),
-      h('button', { class: 'btn btn-block', onclick: () => { this.closeDrawer(); this.leave(); go('/install'); } }, 'Install the reader'),
-      h('button', { class: 'btn btn-block btn-danger', onclick: () => { this.leave(); logout(); } }, 'Sign out')));
+
+      h('button', { class: 'btn btn-block btn-danger', onclick: () => { this.leave(); logout(); } }, 'Sign out'),
+      h('p', { class: 'hint credit' }, 'Icons: ', h('a', { href: 'https://www.flaticon.com/uicons', target: '_blank', rel: 'noopener noreferrer' }, 'UIcons by Flaticon'))));
   }
 
   setFont(px) {
@@ -1070,12 +1112,12 @@ class Reader {
     const ib = (label, icon, fn) => h('button', { class: 'ibtn', 'aria-label': label, title: label, onclick: fn }, icon);
     this.el = h('div', { class: 'reader' },
       h('header', { class: 'rbar' },
-        ib(this.hasLibrary ? 'My books' : 'Book details', '←', () => { this.leave(); go(this.hasLibrary ? '/library' : (isStandalone() ? '/app' : `/book/${this.bookId}`)); }),
+        ib(this.hasLibrary ? 'My books' : 'Back', fi('arrow-left'), () => { this.leave(); go(this.hasLibrary ? '/library' : (isStandalone() ? '/app' : `/book/${this.bookId}`)); }),
         h('div', { class: 'ttl', text: this.book.title }),
-        ib('Search', '⌕', () => this.showSearch()),
-        ib('Contents', '☰', () => this.showToc()),
-        ib('Bookmarks', '🔖', () => this.showBookmarks()),
-        ib('Reading settings', 'Aa', () => this.showSettings())),
+        ib('Search', fi('search'), () => this.showSearch()),
+        ib('Contents', fi('list'), () => this.showToc()),
+        ib('Bookmarks', fi('bookmark'), () => this.showBookmarks()),
+        ib('Reading settings', fi('settings-sliders'), () => this.showSettings())),
       stage,
       h('footer', { class: 'rfoot' },
         h('div', { class: 'bar', role: 'progressbar', 'aria-valuemin': '0', 'aria-valuemax': '100', 'aria-label': 'Reading progress' }, this.progressBar),

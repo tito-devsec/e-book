@@ -209,9 +209,13 @@ export async function activate(env, browser, token, phone, { install = true } = 
   await browser.newDeviceKey();
   const v = await browser.post('/api/access/validate-invitation', { token });
   if (v.data.state !== 'VALID') throw new Error(`invitation ${v.data.state}`);
-  const otp = await browser.post('/api/access/request-otp', { token, phone });
-  if (otp.status !== 200) throw new Error(`otp ${otp.status} ${JSON.stringify(otp.data)}`);
-  const r = await browser.post('/api/access/activate', { token, challengeId: otp.data.challengeId, code: lastOtp(env, phone), deviceKey: browser.jwk });
+  let body = { token, deviceKey: browser.jwk };
+  if (v.data.codeRequired) {
+    const otp = await browser.post('/api/access/request-otp', { token, phone });
+    if (otp.status !== 200) throw new Error(`otp ${otp.status} ${JSON.stringify(otp.data)}`);
+    body = { ...body, challengeId: otp.data.challengeId, code: lastOtp(env, phone) };
+  }
+  const r = await browser.post('/api/access/activate', body);
   if (r.status !== 200) throw new Error(`activate ${r.status} ${JSON.stringify(r.data)}`);
   browser.csrf = r.data.csrf;
   if (install) await installApp(browser);

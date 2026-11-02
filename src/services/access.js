@@ -56,8 +56,10 @@ export function createAccess({ pool, cfg, settings, events, otpDelivery, logger 
           WHERE l.id = $1 FOR UPDATE OF l`, [licenseId]);
       if (!lic) throw notFound('License not found');
       if (lic.order_status !== 'PAID') throw badRequest('Payment must be verified before an invitation can be issued', 'PAYMENT_NOT_VERIFIED');
-      if (lic.status !== 'PENDING_ACTIVATION') {
-        throw badRequest('This license is already activated or not available. The customer signs in with their phone number instead.', 'LICENSE_NOT_PENDING');
+      // A first link activates the purchase; a later link (new phone, lost app) moves it.
+      const expired = lic.expires_at && new Date(lic.expires_at) <= new Date();
+      if (!['PENDING_ACTIVATION', 'ACTIVE'].includes(lic.status) || expired) {
+        throw badRequest('This license is suspended, revoked or expired. Reactivate or renew it first.', 'LICENSE_NOT_AVAILABLE');
       }
       if (['SUSPENDED', 'REVOKED'].includes(lic.customer_status)) throw badRequest('Customer access is suspended or revoked', 'CUSTOMER_BLOCKED');
 
@@ -106,7 +108,7 @@ export function createAccess({ pool, cfg, settings, events, otpDelivery, logger 
       if (inv.status === 'PENDING') await db.query(`UPDATE invitations SET status='EXPIRED' WHERE id=$1 AND status='PENDING'`, [inv.id]);
       return { state: 'EXPIRED', inv };
     }
-    if (['SUSPENDED', 'REVOKED'].includes(inv.customer_status) || inv.license_status !== 'PENDING_ACTIVATION') return { state: 'REVOKED', inv };
+    if (['SUSPENDED', 'REVOKED'].includes(inv.customer_status) || !['PENDING_ACTIVATION', 'ACTIVE'].includes(inv.license_status)) return { state: 'REVOKED', inv };
     return { state: 'VALID', inv };
   }
 
@@ -130,6 +132,7 @@ export function createAccess({ pool, cfg, settings, events, otpDelivery, logger 
       book: { id: book.id, title: book.title, author: book.author, subtitle: book.subtitle, hasCover: Boolean(book.cover_storage_key && book.published) },
       phoneHint: maskPhone(inv.phone_e164),
       expiresAt: inv.expires_at,
+      codeRequired: (await settings.policy()).require_whatsapp_code === true,
     };
   }
 
@@ -277,37 +280,106 @@ export function createAccess({ pool, cfg, settings, events, otpDelivery, logger 
   // -------------------------------------------------------------------------
   async function activate({ token, challengeId, code, deviceKey, userAgent, ip }) {
     const key = parseDeviceKey(deviceKey);
+    const policy = await settings.policy();
     const result = await tx(pool, async (db) => {
       const { state, inv } = await findInvitation(db, token, true);
-      if (state !== 'VALID') return { error: badRequest('This invitation is no longer valid.', `INVITATION_${state}`), state, inv };
-      const otp = await checkOtp(db, { challengeId, code, purpose: 'ACTIVATION', invitationId: inv.id });
-      if (!otp.ok) return { error: otpError(otp) };
+      if (state !== 'VALID') return { error: badRequest('This link has already been used or is no longer valid.', `INVITATION_${state}`), state, inv };
+      if (policy.require_whatsapp_code === true) {
+        if (!challengeId) return { error: badRequest('Enter the code sent to your WhatsApp.', 'OTP_REQUIRED') };
+        const otp = await checkOtp(db, { challengeId, code, purpose: 'ACTIVATION', invitationId: inv.id });
+        if (!otp.ok) return { error: otpError(otp) };
+      }
 
+      // The link opens exactly once.
       const consumed = await db.query(
-        `UPDATE invitations SET status='CONSUMED', consumed_at=now() WHERE id=$1 AND status='PENDING' RETURNING id`, [inv.id]);
-      if (consumed.rowCount !== 1) throw badRequest('This invitation is no longer valid.', 'INVITATION_CONSUMED');
+        `UPDATE invitations SET status='CONSUMED', consumed_at=now(), opened_at=COALESCE(opened_at, now()) WHERE id=$1 AND status='PENDING' RETURNING id`, [inv.id]);
+      if (consumed.rowCount !== 1) throw badRequest('This link has already been used.', 'INVITATION_CONSUMED');
 
       const { rows: [lic] } = await db.query(
-        `UPDATE reading_licenses SET status='ACTIVE', activated_at=now(), updated_at=now(),
-           expires_at = CASE WHEN duration_days IS NULL THEN NULL ELSE now() + make_interval(days => duration_days) END
-         WHERE id=$1 AND status='PENDING_ACTIVATION' RETURNING *`, [inv.license_id]);
-      if (!lic) throw badRequest('This invitation is no longer valid.', 'INVITATION_REVOKED');
+        `UPDATE reading_licenses SET status='ACTIVE', updated_at=now(),
+           activated_at = COALESCE(activated_at, now()),
+           expires_at = CASE WHEN activated_at IS NOT NULL THEN expires_at
+                             WHEN duration_days IS NULL THEN NULL ELSE now() + make_interval(days => duration_days) END
+         WHERE id=$1 AND status IN ('PENDING_ACTIVATION','ACTIVE') RETURNING *`, [inv.license_id]);
+      if (!lic) throw badRequest('This link is no longer valid.', 'INVITATION_REVOKED');
 
       let device = await findActiveDevice(db, inv.customer_id, key.thumbprint);
-      if (device && device.status !== 'ACTIVE') throw forbidden('DEVICE_PENDING', 'This browser is waiting for approval by the book owner.');
+      if (device && device.status !== 'ACTIVE') await db.query(`UPDATE registered_devices SET status='ACTIVE' WHERE id=$1`, [device.id]);
       if (!device) device = await insertDevice(db, { customerId: inv.customer_id, key, userAgent });
+
+      // A link issued by the owner is their approval to put the book on this device: if all
+      // device slots are taken, the least recently used other device loses access.
+      const { rows: others } = await db.query(
+        `SELECT da.device_id FROM device_authorizations da JOIN registered_devices d ON d.id=da.device_id
+          WHERE da.license_id=$1 AND da.status='ACTIVE' AND d.status='ACTIVE' AND d.id<>$2
+          ORDER BY d.last_seen_at NULLS FIRST, d.registered_at`, [lic.id, device.id]);
+      const surplus = others.length + 1 - lic.max_devices;
+      for (const o of others.slice(0, Math.max(0, surplus))) {
+        await db.query(`UPDATE device_authorizations SET status='REVOKED', revoked_at=now() WHERE device_id=$1 AND license_id=$2`, [o.device_id, lic.id]);
+        const { rows: [{ n }] } = await db.query(`SELECT count(*)::int AS n FROM device_authorizations WHERE device_id=$1 AND status='ACTIVE'`, [o.device_id]);
+        if (n === 0) await db.query(`UPDATE registered_devices SET status='REPLACED', revoked_at=now(), revoked_reason='Replaced by a new link from the owner' WHERE id=$1`, [o.device_id]);
+        await endDeviceSessions(db, o.device_id, 'DEVICE_REPLACED');
+        await db.query(`INSERT INTO device_replacements (customer_id, old_device_id, new_device_id, mode, decided_at) VALUES ($1,$2,$3,'OWNER_LINK', now())`,
+          [inv.customer_id, o.device_id, device.id]);
+      }
       await authorize(db, device.id, lic.id);
 
       await db.query(`UPDATE customers SET status='ACTIVATED', updated_at=now() WHERE id=$1 AND status IN ('PAID','INVITED','EXPIRED')`, [inv.customer_id]);
       await events.reading(db, { type: 'LICENSE_ACTIVATED', customerId: inv.customer_id, bookId: inv.book_id, deviceId: device.id });
       const session = await createSession(db, { customerId: inv.customer_id, deviceId: device.id });
-      return { session, bookId: inv.book_id, customerId: inv.customer_id };
+      const { rows: [book] } = await db.query('SELECT id, title, subtitle, author, description FROM books WHERE id=$1', [inv.book_id]);
+      return { session, bookId: inv.book_id, customerId: inv.customer_id, book };
     });
     if (result.error) {
       if (result.state) await invitationAttemptEvent(result.state, result.inv, ip);
       throw result.error;
     }
     return result;
+  }
+
+  // -------------------------------------------------------------------------
+  // Pairing: hand access from the browser that opened the link to the home-screen app.
+  // On iPhone the installed app has its own storage, so it cannot see the browser's session.
+  // The download page creates a short-lived one-time pairing token that the app's start URL
+  // carries; the first launch redeems it and the browser device hands its access to the app.
+  // -------------------------------------------------------------------------
+  async function createPairing(session) {
+    const token = randomToken(32);
+    await pool.query(`UPDATE app_pairings SET expires_at=now() WHERE from_device_id=$1 AND used_at IS NULL`, [session.device_id]);
+    await pool.query(
+      `INSERT INTO app_pairings (customer_id, from_device_id, token_hash, expires_at) VALUES ($1,$2,$3, now() + interval '2 hours')`,
+      [session.customer_id, session.device_id, tokenHash(token, 'pair')]);
+    return token;
+  }
+
+  async function redeemPairing({ token, deviceKey, userAgent, ip }) {
+    const key = parseDeviceKey(deviceKey);
+    return tx(pool, async (db) => {
+      const { rows: [p] } = await db.query(`SELECT * FROM app_pairings WHERE token_hash=$1 FOR UPDATE`, [tokenHash(String(token || ''), 'pair')]);
+      if (!p || p.used_at || new Date(p.expires_at) <= new Date()) {
+        if (p) await events.security(db, { type: 'PAIRING_REUSED', severity: 'LOW', customerId: p.customer_id, ip });
+        throw badRequest('This app link has expired. Ask the book owner for a new link.', 'PAIRING_INVALID');
+      }
+      const { rows: [cust] } = await db.query('SELECT status FROM customers WHERE id=$1', [p.customer_id]);
+      if (['SUSPENDED', 'REVOKED'].includes(cust.status)) throw forbidden('ACCOUNT_SUSPENDED', 'Access to this account is paused. Please contact the book owner.');
+      let device = await findActiveDevice(db, p.customer_id, key.thumbprint);
+      if (!device) device = await insertDevice(db, { customerId: p.customer_id, key, userAgent });
+      await db.query(`UPDATE registered_devices SET status='ACTIVE', installed_at=COALESCE(installed_at, now()) WHERE id=$1`, [device.id]);
+      if (device.id !== p.from_device_id) {
+        const { rows: auths } = await db.query(`SELECT license_id FROM device_authorizations WHERE device_id=$1 AND status='ACTIVE'`, [p.from_device_id]);
+        for (const a of auths) {
+          await db.query(`UPDATE device_authorizations SET status='REVOKED', revoked_at=now() WHERE device_id=$1 AND license_id=$2`, [p.from_device_id, a.license_id]);
+          await authorize(db, device.id, a.license_id);
+        }
+        await db.query(`UPDATE registered_devices SET status='REPLACED', revoked_at=now(), revoked_reason='Moved to the home-screen app' WHERE id=$1 AND status='ACTIVE'`, [p.from_device_id]);
+        await endDeviceSessions(db, p.from_device_id, 'DEVICE_REPLACED');
+        await db.query(`INSERT INTO device_replacements (customer_id, old_device_id, new_device_id, mode, decided_at) VALUES ($1,$2,$3,'APP_INSTALL', now())`,
+          [p.customer_id, p.from_device_id, device.id]);
+      }
+      await db.query(`UPDATE app_pairings SET used_at=now(), used_by_device_id=$2 WHERE id=$1`, [p.id, device.id]);
+      await events.reading(db, { type: 'APP_INSTALLED', customerId: p.customer_id, deviceId: device.id, details: { paired: true } });
+      return { session: await createSession(db, { customerId: p.customer_id, deviceId: device.id }) };
+    });
   }
 
   // -------------------------------------------------------------------------
@@ -490,6 +562,10 @@ export function createAccess({ pool, cfg, settings, events, otpDelivery, logger 
       await events.security(null, { type: 'SUSPENDED_ACCESS_ATTEMPT', severity: 'MEDIUM', customerId: s.customer_id, deviceId: s.device_id });
       return { error: 'ACCOUNT_SUSPENDED', session: s };
     }
+    // Sessions renew themselves while in use, so the app keeps working every day.
+    if (new Date(s.expires_at).getTime() - Date.now() < (policy.session_ttl_hours * 3600000) / 2) {
+      await pool.query(`UPDATE reading_sessions SET expires_at = now() + make_interval(hours => $2) WHERE id=$1`, [s.id, policy.session_ttl_hours]);
+    }
     if (Date.now() - new Date(s.last_seen_at).getTime() > 60000) {
       await pool.query('UPDATE reading_sessions SET last_seen_at=now() WHERE id=$1', [s.id]);
       await pool.query('UPDATE registered_devices SET last_seen_at=now() WHERE id=$1', [s.device_id]);
@@ -545,7 +621,7 @@ export function createAccess({ pool, cfg, settings, events, otpDelivery, logger 
   }
 
   return {
-    createInvitation, validateInvitation, requestActivationOtp, activate,
+    createInvitation, validateInvitation, requestActivationOtp, activate, createPairing, redeemPairing,
     requestLoginOtp, verifyLogin, replaceDevice,
     resolveSession, logout, libraryFor, requireBookAccess, endDeviceSessions, authorize,
     tokenHash, SESSION_COOKIE,

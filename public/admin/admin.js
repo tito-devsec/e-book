@@ -175,36 +175,18 @@ function svgEl(tag, attrs = {}, ...children) {
   for (const c of children.flat(Infinity)) if (c) el.append(c);
   return el;
 }
-const ICONS = {
-  home: ['M3 11l9-7 9 7', 'M5 10v10h5v-6h4v6h5V10'],
-  orders: ['M6 7h12l-1 12H7L6 7z', 'M9 7a3 3 0 0 1 6 0'],
-  payments: ['M3 7h18v10H3z', 'M3 11h18', 'M7 15h3'],
-  customers: ['M16 19c0-2.2-1.8-4-4-4s-4 1.8-4 4', 'M12 12a3 3 0 1 0 0-6 3 3 0 0 0 0 6z', 'M19 18c0-1.6-1-3-2.5-3.6', 'M16 6.3a3 3 0 0 1 0 5.4'],
-  invitations: ['M4 6h16v12H4z', 'M4 7l8 6 8-6'],
-  devices: ['M8 3h8a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1H8a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z', 'M11 18h2'],
-  licenses: ['M14 10a4 4 0 1 0-3.9 4L9 15v2H7v2H4v-3l5.9-5.9', 'M15.5 8.5h.01'],
-  books: ['M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2V5z', 'M4 19a2 2 0 0 1 2-2h13'],
-  editions: ['M12 3l9 5-9 5-9-5 9-5z', 'M3 13l9 5 9-5', 'M3 17l9 5 9-5'],
-  activity: ['M3 12h4l3-8 4 16 3-8h4'],
-  security: ['M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6l8-3z', 'M9 12l2 2 4-4'],
-  audit: ['M8 6h12', 'M8 12h12', 'M8 18h12', 'M4 6h.01', 'M4 12h.01', 'M4 18h.01'],
-  website: ['M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z', 'M3 12h18', 'M12 3c2.5 2.5 3.8 5.5 3.8 9s-1.3 6.5-3.8 9c-2.5-2.5-3.8-5.5-3.8-9S9.5 5.5 12 3z'],
-  whatsapp: ['M4 20l1.3-4A8 8 0 1 1 8 18.7L4 20z', 'M9 9.5c.5 2 2 3.5 4 4l1-1 2 1c-.3 1-1 1.5-2 1.5-3 0-6-3-6-6 0-1 .5-1.7 1.5-2l1 2-1 1z'],
-  admins: ['M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8z', 'M4 21c0-4 3.6-6 8-6', 'M18 15l1 2 2 .3-1.5 1.5.4 2.2-1.9-1-1.9 1 .4-2.2L15 17.3l2-.3 1-2z'],
-  settings: ['M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z', 'M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9c.3.6.9 1 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z'],
-  account: ['M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8z', 'M4 21c0-4 3.6-7 8-7s8 3 8 7'],
-  search: ['M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14z', 'M20 20l-4-4'],
-  bell: ['M6 8a6 6 0 1 1 12 0c0 7 3 9 3 9H3s3-2 3-9', 'M10.3 21a2 2 0 0 0 3.4 0'],
-  check: ['M5 12l5 5 9-10'],
-  clock: ['M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z', 'M12 7v5l3 2'],
-  x: ['M6 6l12 12', 'M18 6L6 18'],
-  plus: ['M12 5v14', 'M5 12h14'],
-  arrow: ['M5 12h14', 'M13 6l6 6-6 6'],
-  book: ['M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2V5z'],
+// Icons: UIcons by Flaticon (https://www.flaticon.com/uicons), regular rounded set.
+const UICONS = {
+  home: 'rr-home', orders: 'rr-shopping-bag', payments: 'rr-credit-card', customers: 'rr-users', invitations: 'rr-envelope',
+  devices: 'rr-mobile-notch', licenses: 'rr-key', books: 'rr-book-alt', editions: 'rr-layers', activity: 'rr-chart-histogram',
+  security: 'rr-shield-check', audit: 'rr-list', website: 'rr-globe', whatsapp: 'brands-whatsapp', admins: 'rr-user-gear',
+  settings: 'rr-settings', account: 'rr-user', search: 'rr-search', bell: 'rr-bell', check: 'rr-check', clock: 'rr-clock',
+  x: 'rr-cross', plus: 'rr-plus', arrow: 'rr-arrow-right', book: 'rr-book-alt',
 };
-function icon(name, size = 20) {
-  return svgEl('svg', { viewBox: '0 0 24 24', width: size, height: size, fill: 'none', stroke: 'currentColor', 'stroke-width': 1.8, 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'aria-hidden': 'true' },
-    (ICONS[name] || []).map((d) => svgEl('path', { d })));
+function icon(name, size = 18) {
+  const el = h('i', { class: `fi fi-${UICONS[name] || 'rr-circle'}`, 'aria-hidden': 'true' });
+  el.style.fontSize = `${size}px`;
+  return el;
 }
 const initials = (name) => String(name || '?').trim().split(/\s+/).slice(0, 2).map((p) => p[0]?.toUpperCase() || '').join('');
 
@@ -372,7 +354,7 @@ function shell() {
     h('nav', { 'aria-label': 'Dashboard' }, NAV.map(([grp, items]) => {
       const visible = items.filter(([, , p]) => !p || can(p));
       return visible.length ? [h('div', { class: 'grp', text: grp }), visible.map(([href, label, , ic]) => h('a', { href, 'data-nav': true }, icon(ic), h('span', { text: label })))] : [];
-    })));
+    }), h('p', { class: 'credit' }, 'Icons: ', h('a', { href: 'https://www.flaticon.com/uicons', target: '_blank', rel: 'noopener noreferrer' }, 'UIcons by Flaticon'))));
   titleEl = h('h1');
   const q = h('input', { type: 'search', placeholder: 'Search customers by name or phone', 'aria-label': 'Search customers' });
   const search = h('form', { class: 'search', role: 'search' }, icon('search', 18), q);
@@ -549,8 +531,8 @@ async function viewOverview() {
 
   // --- Licences by status (segmented bar, status colours + glyph + label) ----
   const ST = {
-    ACTIVE: ['Active', 'var(--st-good)', '✓'], PENDING_ACTIVATION: ['Not yet activated', 'var(--st-warning)', '…'],
-    SUSPENDED: ['Suspended', 'var(--st-serious)', '!'], REVOKED: ['Revoked', 'var(--st-critical)', '×'], EXPIRED: ['Expired', 'var(--st-neutral)', '–'],
+    ACTIVE: ['Active', 'var(--st-good)', 'check'], PENDING_ACTIVATION: ['Not yet activated', 'var(--st-warning)', 'clock'],
+    SUSPENDED: ['Suspended', 'var(--st-serious)', 'exclamation'], REVOKED: ['Revoked', 'var(--st-critical)', 'cross'], EXPIRED: ['Expired', 'var(--st-neutral)', 'minus'],
   };
   const counts = Object.keys(ST).map((k) => [k, d.licenseStatus.find((x) => x.status === k)?.n || 0]);
   const totalLic = counts.reduce((a, [, n]) => a + n, 0);
@@ -564,7 +546,7 @@ async function viewOverview() {
   const licences = h('section', { class: 'card' },
     h('div', { class: 'sec-head' }, h('h2', { text: 'Reading Licences' }), link('/admin/licenses', 'Manage')),
     totalLic ? [seg, h('ul', { class: 'status-list' }, counts.map(([k, n]) => {
-      const g = h('span', { class: 'glyph', text: ST[k][2], 'aria-hidden': 'true' }); g.style.background = ST[k][1];
+      const g = h('span', { class: 'glyph', 'aria-hidden': 'true' }, h('i', { class: `fi fi-rr-${ST[k][2]}` })); g.style.background = ST[k][1];
       return h('li', {}, g, h('span', { text: ST[k][0] }), h('b', { text: `${n} · ${Math.round((n / totalLic) * 100)}%` }));
     }))] : h('p', { class: 'chart-empty', text: 'No licences yet. They appear when a payment is verified.' }));
 
@@ -878,7 +860,8 @@ async function viewOrder(id) {
       table([
         { label: 'Book', key: 'title' }, { label: 'License', render: (l) => badge(l.status) },
         { label: 'Latest invitation', render: (l) => (l.latest_invitation ? h('div', {}, badge(l.latest_invitation.status), h('div', { class: 'sub', text: `expires ${fmtDate(l.latest_invitation.expires_at)}` })) : '—') },
-        { label: '', render: (l) => (l.status === 'PENDING_ACTIVATION' && can('invitations.manage') ? btn(l.latest_invitation?.status === 'PENDING' ? 'Generate new access link' : 'Generate Access Link', () => generateInvite(l.id), 'btn btn-small btn-primary') : '') },
+        { label: '', render: (l) => (['PENDING_ACTIVATION', 'ACTIVE'].includes(l.status) && can('invitations.manage')
+          ? btn(l.status === 'ACTIVE' ? 'New link (new phone)' : l.latest_invitation?.status === 'PENDING' ? 'Generate new access link' : 'Generate Access Link', () => generateInvite(l.id), 'btn btn-small btn-primary') : '') },
       ], d.licenses, 'No licenses yet.')),
     h('section', { class: 'card' }, h('h2', { text: 'Verification audit trail' }), table([
       { label: 'Action', key: 'action' }, { label: 'By', key: 'admin' }, { label: 'When', render: (a) => fmtDate(a.created_at) },
@@ -886,8 +869,8 @@ async function viewOrder(id) {
 }
 
 async function generateInvite(licenseId, invitationId) {
-  const v = await ask(invitationId ? 'Reissue access link' : 'Generate access link',
-    'A new private link is created. Any earlier unused link for this purchase stops working.',
+  const v = await ask(invitationId ? 'New access link' : 'Generate access link',
+    'A new private link is created. It opens only once, on the device the customer reads on. Any earlier unused link stops working. If the book is already on another device, opening this link moves it to the new device.',
     [{ name: 'expiryHours', label: 'Link valid for (hours)', type: 'number', min: 1, maxv: 720, default: 24 }], 'Generate link');
   if (!v) return;
   const r = await act(() => (invitationId
@@ -896,7 +879,7 @@ async function generateInvite(licenseId, invitationId) {
   if (!r) return;
   const copy = async (text, label) => { try { await navigator.clipboard.writeText(text); toast(`${label} copied`); } catch { toast('Copy failed — select and copy manually', true); } };
   modal('Private access link', h('div', {},
-    h('p', { class: 'hint', text: 'This link is shown only once. Send it to the customer now. It works only with their registered WhatsApp number.' }),
+    h('p', { class: 'hint', text: 'This link is shown only once. Send it to the customer now. It opens only once: the customer should open it on the phone or computer they will read on.' }),
     h('div', { class: 'label', text: 'Link' }), h('div', { class: 'copybox mono', text: r.link }),
     h('div', { class: 'label', text: 'WhatsApp message' }), h('div', { class: 'copybox', text: r.message }),
     h('div', { class: 'row-actions' },
@@ -919,7 +902,7 @@ function invitationsTable(rows) {
     { label: 'Opened / used', render: (i) => h('div', {}, h('div', { class: 'sub', text: `opened ${fmtDate(i.opened_at)}` }), h('div', { class: 'sub', text: `used ${fmtDate(i.consumed_at)}` })) },
     { label: '', render: (i) => (can('invitations.manage') ? h('div', { class: 'actions' },
       i.status === 'PENDING' ? btn('Revoke', () => act(() => api('POST', `/api/admin/invitations/${i.id}/revoke`), { ok: 'Invitation revoked' }), 'btn btn-small btn-danger') : null,
-      ['PENDING', 'EXPIRED', 'REVOKED'].includes(i.status) ? btn('Reissue', () => generateInvite(i.license_id, i.id)) : null) : '') },
+      btn(i.status === 'CONSUMED' ? 'New link' : 'Reissue', () => generateInvite(i.license_id, i.id))) : '') },
   ], rows, 'No invitations.');
 }
 
@@ -979,7 +962,7 @@ function licensesTable(rows) {
     { label: 'Activated', render: (l) => fmtDate(l.activated_at) },
     { label: 'Expires', render: (l) => (l.expires_at ? fmtDate(l.expires_at) : 'Never') },
     { label: '', render: (l) => h('div', { class: 'actions' },
-      l.status === 'PENDING_ACTIVATION' && can('invitations.manage') ? btn('Access link', () => generateInvite(l.id), 'btn btn-small btn-primary') : null,
+      ['PENDING_ACTIVATION', 'ACTIVE'].includes(l.status) && can('invitations.manage') ? btn(l.status === 'ACTIVE' ? 'New link' : 'Access link', () => generateInvite(l.id), 'btn btn-small btn-primary') : null,
       mng && l.status === 'ACTIVE' ? btn('Suspend', async () => { const v = await ask('Suspend license', 'Reading stops on the next request until reactivated.', [{ name: 'reason', label: 'Reason' }], 'Suspend', true); if (v) act(() => api('POST', `/api/admin/licenses/${l.id}/suspend`, v), { ok: 'Suspended' }); }) : null,
       mng && l.status === 'SUSPENDED' ? btn('Reactivate', () => act(() => api('POST', `/api/admin/licenses/${l.id}/reactivate`), { ok: 'Reactivated' })) : null,
       mng && ['ACTIVE', 'EXPIRED', 'SUSPENDED'].includes(l.status) && l.activated_at ? btn('Renew', async () => { const v = await ask('Renew license', 'Extend access from today (or from the current expiry if later).', [{ name: 'days', label: 'Days (empty = no expiry)', type: 'number', min: 1, nullable: true }], 'Renew'); if (v) act(() => api('POST', `/api/admin/licenses/${l.id}/renew`, v), { ok: 'Renewed' }); }) : null,
@@ -1104,12 +1087,13 @@ const SETTING_LABELS = {
   default_license_duration_days: ['Default license duration (days)', 'Empty = no expiry'],
   content_requests_per_minute: ['Reader requests allowed per minute', 'Above this, requests are blocked and flagged'],
   require_app_install: ['Reading only in the installed app', 'Customers must add the reader to their device before reading; the download page expires once installed'],
+  require_whatsapp_code: ['Ask for a WhatsApp code when opening a link', 'Off: the link opens once with no code. On: the customer confirms their number with a code, and can sign in again with a code'],
 };
 
 async function viewSettings() {
   const { settings, schema } = await api('GET', '/api/admin/settings');
   const fields = Object.entries(schema).map(([k, s]) => (s.type === 'bool'
-    ? { name: k, label: SETTING_LABELS[k]?.[0] || k, type: 'select', options: [['true', 'Yes (recommended)'], ['false', 'No, allow reading in the browser']], hint: SETTING_LABELS[k]?.[1] }
+    ? { name: k, label: SETTING_LABELS[k]?.[0] || k, type: 'select', options: [['true', 'Yes'], ['false', 'No']], hint: SETTING_LABELS[k]?.[1] }
     : s.enum
     ? { name: k, label: SETTING_LABELS[k]?.[0] || k, type: 'select', options: s.enum.map((v) => [v, v === 'SELF_SERVICE' ? 'Customer can move it after verifying their number' : 'Requires my approval']), hint: SETTING_LABELS[k]?.[1] }
     : { name: k, label: SETTING_LABELS[k]?.[0] || k, type: 'number', min: s.min, maxv: s.max, nullable: s.nullable, hint: SETTING_LABELS[k]?.[1] }));

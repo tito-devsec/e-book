@@ -540,7 +540,6 @@ export function adminRoutes(ctx) {
     const b = validate(req.body, { expiryHours: { type: 'int', min: 1, max: 720 } });
     const { rows: [i] } = await pool.query('SELECT license_id, status FROM invitations WHERE id=$1', [id]);
     if (!i) throw notFound();
-    if (i.status === 'CONSUMED') throw badRequest('This invitation was already used. The customer signs in with their phone number.');
     const result = await access.createInvitation({ licenseId: i.license_id, adminId: req.admin.id, expiryHours: b.expiryHours, ip: req.ip });
     res.status(201).json(result);
   });
