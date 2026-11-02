@@ -4,7 +4,7 @@ All endpoints are under `/api`, accept and return JSON (uploads use `multipart/f
 and are never cached. Errors have the shape:
 
 ```json
-{ "code": "OTP_WRONG", "message": "That code is not correct. 4 attempt(s) left." }
+{ "code": "CLAIM_INVALID", "message": "This link has already been used or is no longer valid." }
 ```
 
 | Status | Meaning |
@@ -30,12 +30,9 @@ session exists, `X-CSRF-Token`. Cross-origin requests are rejected.
 
 | Method & path | Body | Result |
 |---|---|---|
-| `POST /access/validate-invitation` | `{token}` | `{state: VALID\|CONSUMED\|EXPIRED\|REVOKED\|INVALID, book?, phoneHint?, expiresAt?}` |
-| `POST /access/request-otp` | `{token, phone}` | `{challengeId, expiresInSeconds}`. `phone` must match the invitation's number; the code is sent to the stored number. |
-| `POST /access/activate` | `{token, challengeId, code, deviceKey}` | Sets session cookie. `{ok, bookId, csrf}` |
-| `POST /auth/request-otp` | `{phone}` | `{challengeId, expiresInSeconds}` (same response whether or not the number has access) |
-| `POST /auth/verify-otp` | `{challengeId, code, deviceKey}` | `{ok, csrf}` + cookie, or `409 {code: DEVICE_LIMIT, grantToken, mode}` |
-| `POST /access/replace-device` | `{grantToken}` | `{status: REPLACED, csrf}` + cookie, or `202 {status: PENDING_APPROVAL}` |
+| `POST /access/validate-invitation` | `{token}` | `{state: VALID\|CONSUMED\|EXPIRED\|REVOKED\|INVALID, book?, expiresAt?}`. Does not use up the link |
+| `POST /access/prepare-app` | `{token}` | `{claim}`: one-time token for the app's start address (`/manifest.webmanifest?claim=…`). Each call replaces the previous claim |
+| `POST /access/claim` | `{claim, deviceKey}` | First open of the added app: uses up the link, registers the device (marked as having the app), sets the session cookie. `{ok, bookId, csrf}` |
 | `GET /auth/session` | — | `{authenticated, csrf, customer, books[]}` or 401/403 with `code` |
 | `POST /auth/logout` | — | Ends session, clears cookie, `Clear-Site-Data` |
 | `POST /access/validate-license` | `{bookId}` | `{valid, expiresAt}` (session required) |
@@ -119,6 +116,6 @@ Permission in brackets. All changes are written to the audit log.
 
 | Requested | Implemented as |
 |---|---|
-| `POST /api/access/register-device` | Part of `/api/access/activate` and `/api/auth/verify-otp`: a device is only ever registered together with a verified OTP, never by a separate call |
+| `POST /api/access/activate`, `register-device` | `POST /api/access/claim`: the device is registered when the added app first opens with its claim token. There are no WhatsApp codes |
 | `POST /api/admin/invitations/:id/resend` | Reissue: generates a new token and invalidates the old one (old tokens cannot be recovered because only hashes are stored) |
 | `POST /api/admin/devices/:id/revoke` etc. | As specified, plus device-replacement approval endpoints |

@@ -290,7 +290,7 @@ export function adminRoutes(ctx) {
       if (b.phone) {
         phone = normalizePhone(b.phone, process.env.DEFAULT_COUNTRY_CODE || '');
         if (!phone) throw badRequest('Enter the phone number in international format, e.g. +254712345678');
-        // Changing the number moves OTP delivery: pending invitations must be reissued.
+        // A changed number means the customer details changed: unused links are cancelled; send a new one.
         if (phone !== c.phone_e164) {
           await db.query(`UPDATE invitations SET status='REVOKED', revoked_at=now() WHERE customer_id=$1 AND status='PENDING'`, [id]);
         }
@@ -585,64 +585,8 @@ export function adminRoutes(ctx) {
          FROM device_replacements r JOIN customers c ON c.id=r.customer_id
          JOIN registered_devices nd ON nd.id=r.new_device_id LEFT JOIN registered_devices od ON od.id=r.old_device_id
          LEFT JOIN administrators a ON a.id=r.decided_by
-        ORDER BY (r.mode='PENDING') DESC, r.created_at DESC LIMIT 200`);
+        ORDER BY r.created_at DESC LIMIT 200`);
     res.json({ replacements: rows });
-  });
-
-  r.post('/device-replacements/:id/approve', can('access.manage'), async (req, res) => {
-    const id = uuidParam(req.params.id);
-    const b = validate(req.body, { transitionHours: { type: 'int', min: 0, max: 168, default: 0 } });
-    await tx(pool, async (db) => {
-      const { rows: [rep] } = await db.query(`SELECT * FROM device_replacements WHERE id=$1 AND mode='PENDING' FOR UPDATE`, [id]);
-      if (!rep) throw badRequest('This request was already decided');
-      const { rows: [nd] } = await db.query(`SELECT * FROM registered_devices WHERE id=$1 AND status='PENDING_APPROVAL' FOR UPDATE`, [rep.new_device_id]);
-      if (!nd) throw badRequest('The new device is no longer pending');
-      const { rows: licenses } = await db.query(
-        `SELECT l.* FROM reading_licenses l JOIN orders o ON o.id=l.order_id AND o.status='PAID'
-          WHERE l.customer_id=$1 AND l.status='ACTIVE' FOR UPDATE OF l`, [rep.customer_id]);
-      const oldIds = new Set();
-      for (const l of licenses) {
-        const { rows: actives } = await db.query(
-          `SELECT da.device_id FROM device_authorizations da JOIN registered_devices d ON d.id=da.device_id
-            WHERE da.license_id=$1 AND da.status='ACTIVE' AND d.status='ACTIVE' ORDER BY d.last_seen_at NULLS FIRST`, [l.id]);
-        if (actives.length >= l.max_devices) {
-          const old = actives[0].device_id;
-          oldIds.add(old);
-          if (b.transitionHours === 0) {
-            await db.query(`UPDATE device_authorizations SET status='REVOKED', revoked_at=now() WHERE device_id=$1 AND license_id=$2`, [old, l.id]);
-          }
-        }
-        await access.authorize(db, nd.id, l.id);
-      }
-      await db.query(`UPDATE registered_devices SET status='ACTIVE' WHERE id=$1`, [nd.id]);
-      for (const old of oldIds) {
-        if (b.transitionHours > 0) {
-          // Temporary transition: old device keeps working until the deadline, then stops.
-          await db.query(`UPDATE registered_devices SET status='REPLACED', revoked_at=now(), revoked_reason='Replaced (transition)',
-                            transition_until=now() + make_interval(hours => $2) WHERE id=$1`, [old, b.transitionHours]);
-        } else {
-          await db.query(`UPDATE registered_devices SET status='REPLACED', revoked_at=now(), revoked_reason='Replaced (approved by owner)' WHERE id=$1`, [old]);
-          await access.endDeviceSessions(db, old, 'DEVICE_REPLACED');
-        }
-      }
-      await db.query(`UPDATE device_replacements SET mode='ADMIN_APPROVED', old_device_id=$2, decided_by=$3, decided_at=now() WHERE id=$1`,
-        [id, [...oldIds][0] || null, req.admin.id]);
-      await events.reading(db, { type: 'DEVICE_REPLACED', customerId: rep.customer_id, deviceId: nd.id, details: { approvedBy: req.admin.id } });
-      await audit(db, req, 'device.replacement_approve', 'device', nd.id, { replacementId: id, oldDevices: [...oldIds], transitionHours: b.transitionHours });
-    });
-    res.json({ ok: true });
-  });
-
-  r.post('/device-replacements/:id/reject', can('access.manage'), async (req, res) => {
-    const id = uuidParam(req.params.id);
-    await tx(pool, async (db) => {
-      const { rows: [rep] } = await db.query(`SELECT * FROM device_replacements WHERE id=$1 AND mode='PENDING' FOR UPDATE`, [id]);
-      if (!rep) throw badRequest('This request was already decided');
-      await db.query(`UPDATE registered_devices SET status='REJECTED', revoked_at=now(), revoked_reason='Replacement rejected' WHERE id=$1`, [rep.new_device_id]);
-      await db.query(`UPDATE device_replacements SET mode='ADMIN_REJECTED', decided_by=$2, decided_at=now() WHERE id=$1`, [id, req.admin.id]);
-      await audit(db, req, 'device.replacement_reject', 'device', rep.new_device_id, { replacementId: id });
-    });
-    res.json({ ok: true });
   });
 
   // =========================================================================

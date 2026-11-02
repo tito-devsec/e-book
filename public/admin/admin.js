@@ -937,22 +937,14 @@ function devicesTable(rows) {
 
 async function viewDevices(q) {
   const [d, reps] = await Promise.all([api('GET', `/api/admin/devices?${q}`), api('GET', '/api/admin/device-replacements')]);
-  const pending = reps.replacements.filter((r) => r.mode === 'PENDING');
   page('Registered Devices',
-    h('p', { class: 'hint', text: 'A device is a browser holding a registered cryptographic key. It is a useful signal, not proof of a specific physical phone.' }),
-    pending.length ? h('section', { class: 'card' }, h('h2', { text: 'Replacement requests waiting for approval' }), table([
-      { label: 'Customer', render: (r) => link(`/admin/customers/${r.customer_id}`, r.full_name) },
-      { label: 'New device', render: (r) => `${r.new_browser} on ${r.new_os}` }, { label: 'Requested', render: (r) => fmtDate(r.created_at) },
-      { label: '', render: (r) => (can('access.manage') ? h('div', { class: 'actions' },
-        btn('Approve', async () => { const v = await ask('Approve replacement', 'The new device gets access. The old device stops working now, or after a transition period you choose.', [{ name: 'transitionHours', label: 'Keep old device working for (hours, 0 = stop now)', type: 'number', min: 0, maxv: 168, default: 0 }], 'Approve'); if (v) act(() => api('POST', `/api/admin/device-replacements/${r.id}/approve`, v), { ok: 'Replacement approved' }); }, 'btn btn-small btn-primary'),
-        btn('Reject', () => act(() => api('POST', `/api/admin/device-replacements/${r.id}/reject`), { ok: 'Rejected' }), 'btn btn-small btn-danger')) : '') },
-    ], pending)) : null,
+    h('p', { class: 'hint', text: 'A device is the “My Books” app on a phone or computer, holding a registered cryptographic key. To move a customer to a new phone, send them a new link: the old device stops working when the new one opens.' }),
     filterBar(q, [{ name: 'status', label: 'All statuses', options: ['ACTIVE', 'PENDING_APPROVAL', 'REVOKED', 'REPLACED', 'REJECTED'].map((s) => [s, s.replace('_', ' ')]) }]),
     devicesTable(d.devices), pager({ ...d, rows: d.devices.length }, (p) => setQuery({ page: p })),
     h('section', { class: 'card' }, h('h2', { text: 'Device replacement history' }), table([
       { label: 'Customer', key: 'full_name' }, { label: 'From', render: (r) => (r.old_browser ? `${r.old_browser} on ${r.old_os}` : '—') },
       { label: 'To', render: (r) => `${r.new_browser} on ${r.new_os}` }, { label: 'Decision', render: (r) => badge(r.mode) },
-      { label: 'By', render: (r) => r.decided_by_name || (r.mode === 'SELF_SERVICE' ? 'Customer (OTP verified)' : r.mode === 'APP_INSTALL' ? 'Customer installed the app (not counted)' : '—') }, { label: 'When', render: (r) => fmtDate(r.decided_at || r.created_at) },
+      { label: 'How', render: (r) => r.decided_by_name || ({ OWNER_LINK: 'New link from the owner', APP_INSTALL: 'Moved into the app', SELF_SERVICE: 'Customer (old sign-in)' }[r.mode] || '—') }, { label: 'When', render: (r) => fmtDate(r.decided_at || r.created_at) },
     ], reps.replacements, 'No replacements yet.')));
 }
 
@@ -1081,20 +1073,13 @@ async function viewAdmins() {
 }
 
 const SETTING_LABELS = {
-  invitation_expiry_hours: ['Default invitation validity (hours)', 'Can be changed per link'],
-  otp_ttl_minutes: ['Verification code validity (minutes)'],
-  otp_max_attempts: ['Wrong code attempts allowed'],
-  otp_max_requests_per_hour: ['Codes a customer may request per hour'],
-  otp_resend_cooldown_seconds: ['Seconds between code requests'],
+  invitation_expiry_hours: ['Default link validity (hours)', 'How long a new private link can be used before the book is added. Can be changed per link'],
   session_ttl_hours: ['Reading session length (hours)', 'Customers confirm their number again after this'],
   session_idle_minutes: ['Sign out after inactivity (minutes)'],
   default_max_devices: ['Default devices per purchase'],
-  device_replacement_mode: ['Moving access to a new device'],
-  max_self_replacements_per_30d: ['Self-service device moves allowed per 30 days', 'After this, requests need your approval'],
   default_license_duration_days: ['Default license duration (days)', 'Empty = no expiry'],
   content_requests_per_minute: ['Reader requests allowed per minute', 'Above this, requests are blocked and flagged'],
   require_app_install: ['Reading only in the installed app', 'Customers must add the reader to their device before reading; the download page expires once installed'],
-  require_whatsapp_code: ['Ask for a WhatsApp code when opening a link', 'Off: the link opens once with no code. On: the customer confirms their number with a code, and can sign in again with a code'],
 };
 
 async function viewSettings() {

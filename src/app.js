@@ -9,7 +9,6 @@ import { createRateLimiter } from './lib/rateLimit.js';
 import { createPool } from './db.js';
 import { createKms } from './services/kms.js';
 import { createStorage } from './services/storage.js';
-import { createOtpDelivery } from './services/otpDelivery.js';
 import { createScanner } from './services/malwareScan.js';
 import { createSettings } from './services/settings.js';
 import { createEvents } from './services/events.js';
@@ -32,16 +31,15 @@ export function createContext(cfg, overrides = {}) {
   const pool = overrides.pool || createPool(cfg);
   const kms = createKms(cfg);
   const storage = overrides.storage || createStorage(cfg);
-  const otpDelivery = overrides.otpDelivery || createOtpDelivery(cfg, logger);
   const scanner = createScanner(cfg, logger);
   const settings = createSettings(pool);
   const events = createEvents({ pool, cfg, logger });
   const rateLimiter = createRateLimiter();
-  const access = createAccess({ pool, cfg, settings, events, otpDelivery, logger });
+  const access = createAccess({ pool, cfg, settings, events });
   const ingest = createIngest({ pool, cfg, kms, storage, scanner, logger });
   const adminAuth = createAdminAuth({ pool, cfg });
   const readerAuth = createReaderAuth({ pool, access, events, rateLimiter, settings });
-  return { cfg, logger, pool, kms, storage, otpDelivery, scanner, settings, events, rateLimiter, access, ingest, adminAuth, readerAuth };
+  return { cfg, logger, pool, kms, storage, scanner, settings, events, rateLimiter, access, ingest, adminAuth, readerAuth };
 }
 
 export function createApp(ctx) {
@@ -114,10 +112,10 @@ export function createApp(ctx) {
   readerPages.get('/manifest.webmanifest', async (req, res) => {
     manifestJson ??= JSON.parse(await fs.readFile(path.join(PUBLIC_DIR, 'reader', 'manifest.webmanifest'), 'utf8'));
     const m = { ...manifestJson };
-    // On the one-time download page the app's start URL carries a one-time pairing token so the
-    // home-screen app (separate storage on iPhone) can take over the access once.
-    const pair = typeof req.query.pair === 'string' && /^[A-Za-z0-9_-]{43}$/.test(req.query.pair) ? req.query.pair : null;
-    if (pair) m.start_url = `/app?pair=${pair}`;
+    // On the private-link page the app's start address carries a one-time claim token: the first
+    // time the added app opens, it uses up the link and signs this device in (see access.js).
+    const claim = typeof req.query.claim === 'string' && /^[A-Za-z0-9_-]{43}$/.test(req.query.claim) ? req.query.claim : null;
+    if (claim) m.start_url = `/app?claim=${claim}`;
     res.set('Cache-Control', 'no-store');
     res.type('application/manifest+json').send(JSON.stringify(m));
   });

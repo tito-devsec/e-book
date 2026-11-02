@@ -1,6 +1,5 @@
 // Fixed-window in-memory rate limiter keyed by an arbitrary string.
-// Per-instance: when running multiple instances, the per-customer OTP limits that matter for
-// security are additionally enforced in the database (otp_challenges counts).
+// Per-instance: when running multiple instances, put a shared limiter (e.g. at the proxy) in front.
 import { tooMany } from './http.js';
 
 export function createRateLimiter() {

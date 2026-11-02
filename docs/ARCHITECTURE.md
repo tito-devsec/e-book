@@ -6,14 +6,13 @@
                  ┌──────────────── one Node.js service (Express 5) ────────────────┐
  admin.*     ───▶│ /admin SPA       + /api/admin/*   (admin session, RBAC, CSRF)    │
  books.*     ───▶│ contact page + reader PWA, /api/public/contact, /api/access/*,  │
-                 │                    /api/auth/*  (OTP, activation), public covers │
+                 │                    /api/auth/*  (link claim, session), covers    │
                  │                  + /api/reader/*  (session + device signature)   │
                  └───────┬───────────────────────┬────────────────────┬────────────┘
                          │                       │                    │
                     PostgreSQL            Private storage         KMS (AWS KMS or
                  (all state, audit)    (S3 bucket or local dir)   local master key)
                                                                        │
-                                     WhatsApp Cloud API (OTP) ◀────────┘ (separate)
 ```
 
 - **Host gating** (`src/app.js`): when `ADMIN_BASE_URL` / `READER_BASE_URL` name different hosts,
@@ -28,11 +27,10 @@
 | `src/config.js` | Environment parsing and startup validation (refuses unsafe production config) |
 | `src/app.js` | Wiring, security headers, host gating, static files, error handling |
 | `src/middleware.js` | Cookies, CSP, origin check, admin auth + RBAC + CSRF, reader session + device signature + replay + rate limit |
-| `src/services/access.js` | Invitations, OTP, activation, login, device registration/replacement, sessions, license checks |
+| `src/services/access.js` | Private links, claim tokens, activation, device registration, sessions, license checks |
 | `src/services/ingest.js` | Upload validation, EPUB parsing + sanitization, PDF rendering, encryption, asset reads |
 | `src/services/kms.js` | Envelope encryption (AWS KMS or local KEK) |
 | `src/services/storage.js` | Private storage (S3 or local) |
-| `src/services/otpDelivery.js` | WhatsApp Cloud API OTP delivery |
 | `src/services/malwareScan.js` | ClamAV INSTREAM client |
 | `src/services/events.js` | Audit, security and reading events |
 | `src/routes/*.js` | HTTP routes |
@@ -50,14 +48,20 @@
    It generates 32 random bytes (256 bits), stores `HMAC-SHA256(pepper, token)` and a 6-character
    hint, replaces any earlier pending invitation, and returns the link once.
 
-### Activation (exactly once)
+### Private link → app (no codes)
 
-`/access/<token>` → the page moves the token out of the URL (`history.replaceState`), validates
-it, asks for the WhatsApp number, compares it with the number stored on the invitation, and sends
-the code **to the stored number**. `POST /api/access/activate` runs one transaction with row
-locks: invitation `PENDING → CONSUMED`, OTP check (wrong attempts are committed, never rolled back),
-license `→ ACTIVE`, device registered and authorized, session created. Partial unique indexes allow
-only one `PENDING` and one `CONSUMED` invitation per license.
+The private link is the proof of purchase. `/access/<token>` moves the token out of the address
+bar, validates it (`POST /api/access/validate-invitation`) and asks for a one-time **claim token**
+(`POST /api/access/prepare-app`). The page points its manifest at
+`/manifest.webmanifest?claim=…`, so the app added from this page starts at `/app?claim=…`.
+Opening or refreshing the link page does not use up the link. Android and computers see the
+download page with an **Add to your device** button; iPhones see the Add to Home Screen steps.
+
+The first time the added app opens, `POST /api/access/claim` runs one transaction with row locks:
+invitation `PENDING → CONSUMED`, claim used, license `→ ACTIVE`, device registered and marked as
+having the app, older devices beyond `max_devices` revoked (a new link from the owner is their
+approval to move the book), session created. This works the same on iPhone, where the home-screen
+app has storage separate from Safari. Sessions renew themselves while in use.
 
 ### Device identity
 
@@ -75,13 +79,9 @@ hardware-backed key (Android Keystore / Secure Enclave). See SECURITY_LIMITATION
 ### Devices per license
 
 `device_authorizations` links devices to licenses. `max_devices` (default 1) caps active
-authorizations per license. A sign-in from a new browser when all slots are used creates a
-short-lived `pending_device_grants` row and asks the customer to move access:
-
-- `SELF_SERVICE` (default): within `max_self_replacements_per_30d`, the oldest device's
-  authorization is revoked, its sessions end, and the new device is authorized in one transaction.
-- `ADMIN_APPROVAL` (or self-service limit reached): the new device waits as `PENDING_APPROVAL`;
-  the owner approves (optionally with a temporary transition period) or rejects.
+authorizations per license. Moving to a new phone is done by the owner: a new link for the same
+license, claimed on the new phone, revokes the least recently used older device and ends its
+sessions (`device_replacements.mode = OWNER_LINK`).
 
 ### Protected content pipeline
 
@@ -122,15 +122,15 @@ the database, so revocation takes effect on the next request.
 
 | Threat | Mitigation | Residual risk |
 |---|---|---|
-| Invitation forwarded before activation | OTP goes only to the stored number; typed number must match; attempts limited; owner can revoke/reissue | If the buyer forwards both the link and the code, the recipient can activate. That is the buyer giving their purchase away. |
+| Link forwarded before the book is added | Whoever adds the book first with the link gets it; the link is then used up. The owner sees the device and can revoke it and send a new link | If the buyer forwards both the link and the code, the recipient can activate. That is the buyer giving their purchase away. |
 | Invitation reused after activation | `CONSUMED` state; shows "already activated" without customer data; security event | none |
-| Token leakage via logs/referrer/history | Tokens hashed in DB; logs redact `/access/` paths; `Referrer-Policy: no-referrer`; token removed from URL bar; no third-party resources | Token visible in the WhatsApp chat itself, protected by OTP |
-| OTP brute force | 6 digits, 5 attempts per code, 5 codes per hour per customer, cooldown, per-IP limits, alert | 1-in-200,000 per code at most |
+| Token leakage via logs/referrer/history | Tokens hashed in DB; logs redact `/access/` paths; `Referrer-Policy: no-referrer`; token removed from URL bar; no third-party resources | Token visible in the WhatsApp chat itself until the book is added |
+| Guessing links | 256-bit tokens; per-IP rate limits on link pages | Infeasible |
 | Account enumeration via sign-in | Identical responses for unknown numbers | Timing differences are small but non-zero |
 | Reader URL shared | Shell contains no content; APIs require session + device signature + license → 401/404 | none |
 | Session cookie theft | HttpOnly cookie is useless without the device private key (non-extractable) | Malware on the device itself |
 | Replay of captured requests | Timestamp window + unique nonce per device | none within design |
-| Account sharing (giving someone your phone/OTP) | One device per license, replacement limits, alerts on multiple sessions and new devices, owner can revoke | A buyer can always show their own screen to someone |
+| Account sharing (giving someone your phone) | One device per license, replacement limits, alerts on multiple sessions and new devices, owner can revoke | A buyer can always show their own screen to someone |
 | Bulk scraping by a legitimate buyer | Per-session rate limit with alert; one chapter per request; watermark with buyer's name and masked number | A determined buyer can copy text they can see (see SECURITY_LIMITATIONS.md) |
 | Malicious upload (XSS, zip bomb, malware) | Admin-only; magic bytes; entry count/size limits; path traversal check; sanitization; ClamAV; sandbox CSP on content | Zero-day in parser libraries |
 | SQL injection | Parameterized queries only | none known |
@@ -154,4 +154,5 @@ the database, so revocation takes effect on the next request.
   standard reviewed construction. No custom cryptographic protocol. Content travels to the browser
   over TLS and is not re-encrypted for the client: client-side decryption keys would be visible to
   the same user anyway (see SECURITY_LIMITATIONS.md).
-- **Phone number is the customer identity** (unique index), because WhatsApp OTP is the login.
+- **No WhatsApp codes.** The owner verifies each payment and sends a private link; the link is the
+  proof of purchase. This removes the WhatsApp Business API dependency entirely.

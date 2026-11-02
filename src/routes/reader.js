@@ -31,11 +31,6 @@ export function readerRoutes({ pool, access, ingest, events, readerAuth, storage
     res.json({ ok: true });
   });
 
-  // One-time token that lets the home-screen app take over this device's access (see access.js).
-  r.post('/pairing', async (req, res) => {
-    res.json({ token: await access.createPairing(req.reader) });
-  });
-
   r.get('/library', async (req, res) => {
     const books = await access.libraryFor(req.reader);
     res.json({

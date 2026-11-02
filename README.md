@@ -9,7 +9,7 @@ The platform has three parts in one Node.js service:
 |---|---|---|
 | Download page | `/` on the reader host | Single-screen book page: DOWNLOAD BOOK installs the reader, START READING opens the book |
 | Management dashboard | `/admin` | Books, customers, orders, payment verification, invitations, devices, licenses, monitoring |
-| Reader PWA | `/app`, `/access/<token>`, `/read/<id>` | Invitation activation, OTP sign-in, installable reader with page-flip |
+| Reader PWA | `/app`, `/access/<token>`, `/read/<id>` | Private link pages, “My Books” app with page-flip reader |
 | API | `/api/...` | Authenticated, validated JSON API ([docs/API.md](docs/API.md)) |
 
 The customer site and the dashboard run on separate domains in production
@@ -21,11 +21,13 @@ The customer site and the dashboard run on separate domains in production
 2. The customer pays (for example M-PESA or a bank transfer).
 3. The owner registers the order in the dashboard and verifies the payment reference.
 4. The owner clicks **Generate Access Link** and sends the private link on WhatsApp.
-5. The customer opens the link on the device they will read on. The link is used up immediately
-   (it opens only once), this device is registered, and the download page is shown once.
+5. The customer opens the link on the device they will read on. No code is needed: the link is
+   the proof of purchase. On Android and computers the download page appears; on iPhone a short
+   "Add to Home Screen" guide appears instead.
 6. **DOWNLOAD BOOK** / **START READING** show one **Add to your device** button.
-7. The “My Books” app opens straight to the book every day. The original file never leaves private storage.
-8. New phone or lost app: the owner sends a new link. (WhatsApp codes can be turned on in settings.)
+7. The first time the “My Books” app opens, the link is used up and that device is signed in. The
+   app then opens straight to the book every day. The original file never leaves private storage.
+8. New phone or lost app: the owner sends a new link.
 
 PDF books are rendered to page images on the server; each page a buyer opens is stamped with
 their name, masked phone number and a trace code, so a leaked screenshot shows whose copy it was.
@@ -39,7 +41,7 @@ browser-based protection can and cannot do.
 
 - Node.js 22.9 or newer
 - PostgreSQL 14 or newer
-- For production: HTTPS reverse proxy, WhatsApp Business Cloud API, AWS KMS + S3 (or the local alternatives), optionally ClamAV
+- For production: HTTPS reverse proxy, AWS KMS + S3 (or the local alternatives), optionally ClamAV
 
 ## Quick start (development)
 
@@ -56,7 +58,7 @@ npm run dev
 
 `npm run setup` writes a development `.env` with random local secrets and creates the database.
 `npm run seed:dev` adds a sample book and the owner account `owner@example.com` /
-`change-me-please-123`. Verification codes are printed in the terminal running `npm run dev`.
+`change-me-please-123`.
 
 Each application runs on its own port:
 
@@ -95,7 +97,7 @@ TEST_DATABASE_URL=postgres://user:pass@localhost:5432/bookapp_test npm test
 npm run audit           # dependency vulnerability scan
 ```
 
-It covers payment and invitation rules, OTP limits, every shared-link scenario, device replacement,
+It covers payment and link rules, every shared-link scenario, moving to a new device,
 revocation, content protection, admin RBAC/CSRF/MFA, audit logging and separate-domain hosting.
 
 ## Documentation

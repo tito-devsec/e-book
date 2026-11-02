@@ -17,7 +17,6 @@ export async function setupEnv() {
     KMS_PROVIDER: 'local',
     STORAGE_DRIVER: 'local',
     STORAGE_LOCAL_DIR: storageDir,
-    OTP_PROVIDER: 'memory',
     LOG_LEVEL: 'error',
     COOKIE_SECURE: 'false',
     TRUST_PROXY: 'false',
@@ -199,26 +198,21 @@ export async function invite(admin, licenseId, expiryHours) {
   return { ...r.data, token: r.data.link.split('/access/')[1] };
 }
 
-export function lastOtp(env, phone) {
-  const out = env.ctx.otpDelivery.outbox.filter((m) => m.phone === phone);
-  return out[out.length - 1]?.code;
-}
 
 /** Full activation through the public API as a customer browser. */
-export async function activate(env, browser, token, phone, { install = true } = {}) {
+/**
+ * The customer journey: open the private link (validate + prepare the app), then the added app's
+ * first open claims the link. Returns the claim response.
+ */
+export async function activate(env, browser, token) {
   await browser.newDeviceKey();
   const v = await browser.post('/api/access/validate-invitation', { token });
   if (v.data.state !== 'VALID') throw new Error(`invitation ${v.data.state}`);
-  let body = { token, deviceKey: browser.jwk };
-  if (v.data.codeRequired) {
-    const otp = await browser.post('/api/access/request-otp', { token, phone });
-    if (otp.status !== 200) throw new Error(`otp ${otp.status} ${JSON.stringify(otp.data)}`);
-    body = { ...body, challengeId: otp.data.challengeId, code: lastOtp(env, phone) };
-  }
-  const r = await browser.post('/api/access/activate', body);
-  if (r.status !== 200) throw new Error(`activate ${r.status} ${JSON.stringify(r.data)}`);
+  const p = await browser.post('/api/access/prepare-app', { token });
+  if (p.status !== 200) throw new Error(`prepare ${p.status} ${JSON.stringify(p.data)}`);
+  const r = await browser.post('/api/access/claim', { claim: p.data.claim, deviceKey: browser.jwk });
+  if (r.status !== 200) throw new Error(`claim ${r.status} ${JSON.stringify(r.data)}`);
   browser.csrf = r.data.csrf;
-  if (install) await installApp(browser);
   return r.data;
 }
 
@@ -228,7 +222,3 @@ export async function installApp(browser) {
   if (r.status !== 200) throw new Error(`app-installed ${r.status} ${JSON.stringify(r.data)}`);
 }
 
-/** Clear OTP cooldown so tests can request codes back to back. */
-export async function clearOtpCooldown(env) {
-  await env.ctx.pool.query(`UPDATE otp_challenges SET created_at = created_at - interval '2 minutes'`);
-}

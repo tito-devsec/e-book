@@ -58,8 +58,6 @@ if (fs.existsSync(envPath) && !('force' in args)) {
     `LOCAL_MASTER_KEY=${crypto.randomBytes(32).toString('hex')}`,
     'STORAGE_DRIVER=local',
     'STORAGE_LOCAL_DIR=./var/storage',
-    '# Verification codes are printed in the terminal instead of being sent on WhatsApp.',
-    'OTP_PROVIDER=console',
     'COOKIE_SECURE=false',
     'DEFAULT_COUNTRY_CODE=254',
     'LOG_LEVEL=warn',

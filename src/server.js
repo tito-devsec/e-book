@@ -27,7 +27,7 @@ for (const [label, u] of urls) {
 const sweep = setInterval(async () => {
   try {
     await ctx.pool.query('DELETE FROM request_nonces WHERE expires_at < now()');
-    await ctx.pool.query(`DELETE FROM pending_device_grants WHERE expires_at < now() - interval '1 day'`);
+    await ctx.pool.query(`DELETE FROM invitation_claims WHERE expires_at < now() - interval '30 days'`);
     await ctx.pool.query(`UPDATE invitations SET status='EXPIRED' WHERE status='PENDING' AND expires_at <= now()`);
     await ctx.pool.query(`UPDATE reading_licenses SET status='EXPIRED', updated_at=now() WHERE status='ACTIVE' AND expires_at IS NOT NULL AND expires_at <= now()`);
     await ctx.pool.query(`UPDATE registered_devices SET transition_until=NULL WHERE transition_until IS NOT NULL AND transition_until <= now()`);

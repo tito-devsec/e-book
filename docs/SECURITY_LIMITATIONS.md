@@ -11,7 +11,7 @@ more than is true.
 |---|---|---|
 | Nobody gets the original EPUB/PDF | Original encrypted in private storage; never served to any browser, including the buyer's | Strong |
 | Only paying customers can read | Payment verification by the owner, license checks on every request | Strong |
-| A forwarded link can't be used by a second person | Each link opens exactly once; whoever opens it first gets the book on that device. With WhatsApp codes turned on, the code also goes only to the buyer's number | Moderate without codes: if the buyer forwards the link before opening it, the recipient gets the book (visible in the dashboard; the owner can revoke and send a new link). Strong with codes on |
+| A link can't be used twice | The link is used up the first time the added app opens; after that it only shows "already used" | Strong. Before the book is added, whoever holds the link can add it: the link is the proof of purchase, so it should go only to the buyer. The owner sees every device and can revoke it and send a new link |
 | A shared reader URL shows nothing | Every content request needs session + registered device key + license | Strong |
 | A stolen session cookie doesn't work alone | Requests must be signed with the browser's non-extractable device key | Good against cookie theft; not against malware controlling the browser |
 | Access can be withdrawn | Revocation, suspension and device removal take effect on the next request | Strong for future reading; see below for what was already seen |

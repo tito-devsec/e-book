@@ -8,7 +8,7 @@ export function randomToken(bytes = 32) {
   return crypto.randomBytes(bytes).toString('base64url');
 }
 
-/** Keyed hash for tokens, OTP codes, IPs. Pepper is server-side only. */
+/** Keyed hash for tokens and IPs. Pepper is server-side only. */
 export function keyedHash(pepper, value, purpose) {
   return crypto.createHmac('sha256', pepper).update(`${purpose}:${value}`).digest('hex');
 }
@@ -20,11 +20,6 @@ export function sha256Hex(buf) {
 export function timingSafeEqualHex(a, b) {
   if (typeof a !== 'string' || typeof b !== 'string' || a.length !== b.length) return false;
   return crypto.timingSafeEqual(Buffer.from(a, 'hex'), Buffer.from(b, 'hex'));
-}
-
-/** Numeric OTP with uniform distribution. */
-export function randomOtp(digits = 6) {
-  return String(crypto.randomInt(0, 10 ** digits)).padStart(digits, '0');
 }
 
 // ---------------------------------------------------------------------------

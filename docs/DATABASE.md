@@ -16,7 +16,7 @@ customers ─< orders ─< order_items >─ books
                 orders ─< payments
 orders ─< reading_licenses >─ books, customers   (one per order × book)
 reading_licenses ─< invitations
-customers ─< otp_challenges
+invitations ─< invitation_claims
 customers ─< registered_devices ─< device_authorizations >─ reading_licenses
 customers ─< device_replacements, pending_device_grants
 registered_devices ─< reading_sessions, request_nonces
@@ -39,15 +39,14 @@ audit_logs, website_settings, system_settings
 | `payments` | Amount, method, reference, status PENDING/VERIFIED/REJECTED, verifier, reason. **Partial unique index**: a `(method, reference)` can verify only one payment |
 | `reading_licenses` | The entitlement: customer × book × order, status PENDING_ACTIVATION/ACTIVE/SUSPENDED/REVOKED/EXPIRED, `max_devices`, `duration_days`, `expires_at`. Unique `(order_id, book_id)` |
 | `invitations` | Tied to license, customer, book, order and phone. Token stored as keyed hash (unique) + 6-char hint. **Partial unique indexes**: one PENDING and one CONSUMED per license |
-| `otp_challenges` | Hashed code (bound to challenge id), purpose, attempts/max, expiry, consumed time |
+| `invitation_claims` | One-time claim tokens (hashed) for the app's start address; used once when the added app first opens |
 | `registered_devices` | Public key JWK + RFC 7638 thumbprint (unique per customer while active), display-only browser/OS/category, status, replacement link, `transition_until` |
 | `device_authorizations` | Device ↔ license, ACTIVE/REVOKED |
-| `device_replacements` | History: old → new device, SELF_SERVICE / PENDING / ADMIN_APPROVED / ADMIN_REJECTED |
-| `pending_device_grants` | 15-minute grants created after OTP when a new device needs a slot |
+| `device_replacements` | History: old → new device (OWNER_LINK when a new link moves the book) |
 | `reading_sessions` | Hashed token, device, CSRF token, expiry, last seen, end reason |
 | `request_nonces` | Replay protection for signed requests (primary key device + nonce), swept after 5 min |
 | `reading_progress`, `bookmarks` | Per customer and book |
-| `reading_events` | INVITATION_OPENED, OTP_REQUESTED, OTP_VERIFIED, DEVICE_REGISTERED, LICENSE_ACTIVATED, READER_OPENED, CHAPTER_ACCESSED, READING_SESSION_ENDED, ACCESS_DENIED, SESSION_EXPIRED, DEVICE_REPLACED, ACCOUNT_SUSPENDED, LICENSE_REVOKED |
+| `reading_events` | INVITATION_OPENED, DEVICE_REGISTERED, APP_INSTALLED, LICENSE_ACTIVATED, READER_OPENED, CHAPTER_ACCESSED, READING_SESSION_ENDED, ACCESS_DENIED, SESSION_EXPIRED, DEVICE_REPLACED, ACCOUNT_SUSPENDED, LICENSE_REVOKED |
 | `security_events` | Typed alerts with severity, hashed IP, resolution |
 | `audit_logs` | Every admin action. **Append-only**: a trigger rejects UPDATE and DELETE |
 | `website_settings` | `site` (book shown on the download page) and `whatsapp` (order link, invitation message). Migration 002 removed the old marketing-site content and the `testimonials` table |
@@ -60,6 +59,8 @@ every admin change run in a single transaction with `SELECT … FOR UPDATE` on t
 
 ## Privacy
 
-The database stores no OTP codes, invitation tokens or session tokens in clear. IP addresses are
+The database stores no link tokens, claim tokens or session tokens in clear. IP addresses are
 stored only as keyed hashes in event tables. Reading events record access, not reading behaviour
 beyond chapter opens.
+
+Migration 006 removed the WhatsApp-code tables (`otp_challenges`, `pending_device_grants`, `app_pairings`).

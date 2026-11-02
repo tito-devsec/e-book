@@ -10,7 +10,6 @@ AWS KMS and S3 for keys and storage. Alternatives are noted where they differ.
 | Server | 2 vCPU, 2–4 GB RAM is enough to start. Docker + Docker Compose. |
 | Domains | `books.example.com` (customer site) and `admin.example.com` pointing (A/AAAA) to the server |
 | AWS | One KMS symmetric key and one private S3 bucket (or use `KMS_PROVIDER=local` / `STORAGE_DRIVER=local`) |
-| WhatsApp | A Meta WhatsApp Business account with the Cloud API, a phone number id, a permanent access token, and an approved **Authentication** message template |
 
 ## 2. Prepare AWS (recommended)
 
@@ -26,16 +25,7 @@ Without AWS: `KMS_PROVIDER=local` with `LOCAL_MASTER_KEY=$(openssl rand -hex 32)
 manager, and `STORAGE_DRIVER=local` on an encrypted disk volume. Back up the key separately from
 the data: without it, stored books cannot be decrypted.
 
-## 3. Prepare WhatsApp OTP
-
-1. In Meta Business Manager → WhatsApp Manager → Message templates, create a template in the
-   **Authentication** category, with the "copy code" button. Note its name and language.
-2. Note the **Phone number ID** and create a **System user permanent access token** with
-   `whatsapp_business_messaging`.
-3. Set `OTP_PROVIDER=whatsapp_cloud`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_ACCESS_TOKEN`,
-   `WHATSAPP_OTP_TEMPLATE`, `WHATSAPP_OTP_TEMPLATE_LANG`.
-
-## 4. Configure
+## 3. Configure
 
 ```bash
 git clone <repository> bookapp && cd bookapp
@@ -44,11 +34,11 @@ openssl rand -base64 48      # → HASH_PEPPER
 echo "POSTGRES_PASSWORD=$(openssl rand -hex 24)" >> .env
 ```
 
-Edit `.env`: domains, `HASH_PEPPER`, KMS/S3, WhatsApp values, `REQUIRE_ADMIN_MFA=true`,
+Edit `.env`: domains, `HASH_PEPPER`, KMS/S3, `REQUIRE_ADMIN_MFA=true`,
 `DEFAULT_COUNTRY_CODE`. Every variable is explained in `.env.example`. The server refuses to
-start with insecure production settings (console OTP, non-secure cookies, short pepper, missing key).
+start with insecure production settings (non-secure cookies, short pepper, missing key).
 
-## 5. Start
+## 4. Start
 
 ```bash
 docker compose up -d --build
@@ -65,7 +55,7 @@ npm run admin:create -- --email you@example.com --name "Your Name"
 NODE_ENV=production npm start       # run under systemd or a process manager
 ```
 
-## 6. HTTPS reverse proxy (Caddy)
+## 5. HTTPS reverse proxy (Caddy)
 
 `/etc/caddy/Caddyfile`:
 
@@ -87,7 +77,7 @@ Caddy obtains certificates automatically. With nginx, set `client_max_body_size 
 `proxy_read_timeout 900s;`, and forward `Host`, `X-Forwarded-For` and `X-Forwarded-Proto`.
 Keep `TRUST_PROXY=1` (one proxy hop).
 
-## 7. Verify
+## 6. Verify
 
 ```bash
 curl -fsS https://books.example.com/readyz
@@ -102,7 +92,7 @@ Then in the dashboard (`https://admin.example.com`):
 4. Register a test order with your own number, verify it, generate an access link, open it on your
    phone and complete activation.
 
-## 8. Updating
+## 7. Updating
 
 ```bash
 git pull
@@ -112,7 +102,7 @@ docker compose up -d --build      # migrations run on start
 Migrations are forward-only and additive; take a database backup before each update
 (see BACKUP_RECOVERY.md).
 
-## 9. Logging and monitoring
+## 8. Logging and monitoring
 
 - Logs are JSON lines on stdout (`docker compose logs app`). Invitation tokens, cookies and
   codes are redacted.

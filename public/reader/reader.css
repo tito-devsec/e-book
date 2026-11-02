@@ -131,3 +131,17 @@ body { background: var(--paper); min-height: 100vh; min-height: 100dvh; }
 .chip .fi { font-size: .9em; }
 .credit { margin-top: 16px; }
 .credit a { color: inherit; }
+
+/* ---------- iPhone: add the book to the home screen ---------- */
+.ios-add { min-height: 100vh; min-height: 100dvh; background: var(--band); padding: 20px 16px 120px; display: grid; justify-items: center; align-content: start; }
+.ios-card { width: 100%; max-width: 440px; background: var(--surface); border-radius: 16px; box-shadow: var(--shadow); padding: 24px 22px; }
+.ios-card .cover-sm { width: 96px; margin: 0 auto 14px; filter: drop-shadow(0 8px 14px rgba(0, 0, 0, .25)); }
+.ios-card h1 { font-family: var(--serif); font-size: 1.5rem; text-align: center; }
+.ios-card > .muted { text-align: center; color: var(--muted); }
+.ios-steps { list-style: none; padding: 0; margin: 18px 0; display: grid; gap: 12px; }
+.ios-steps li { display: grid; grid-template-columns: 30px 1fr; gap: 12px; align-items: center; font-size: 1.02rem; }
+.ios-steps .n { width: 30px; height: 30px; border-radius: 50%; background: var(--accent); color: #fff; display: grid; place-items: center; font-weight: 700; font-size: .9rem; }
+.ios-steps .key { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 8px; background: #eef1f8; color: #1f6feb; font-weight: 600; white-space: nowrap; }
+.ios-pointer { position: fixed; left: 50%; bottom: calc(10px + env(safe-area-inset-bottom)); transform: translateX(-50%); display: grid; justify-items: center; gap: 2px; color: #1f6feb; font-weight: 700; font-size: .9rem; animation: nudge 1.6s ease-in-out infinite; }
+.ios-pointer .fi { font-size: 1.6rem; }
+@keyframes nudge { 0%, 100% { transform: translate(-50%, 0); } 50% { transform: translate(-50%, 8px); } }
