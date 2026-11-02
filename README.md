@@ -40,30 +40,23 @@ browser-based protection can and cannot do.
 
 ## Quick start (development)
 
+Install Node.js 22.9+ and PostgreSQL (on Windows, use the installer from postgresql.org and note
+the password you choose for the `postgres` user). Then, in the project folder:
+
 ```bash
 npm install
-cp .env.example .env    # then edit: see "Development settings" below
+npm run setup -- --db-password YOUR_POSTGRES_PASSWORD
 npm run migrate
-npm run seed:dev        # sample book, owner account owner@example.com / change-me-please-123
+npm run seed:dev
 npm run dev
 ```
 
-Development settings for `.env`:
-
-```
-NODE_ENV=development
-DATABASE_URL=postgres://bookapp:bookapp@localhost:5432/bookapp
-HASH_PEPPER=<openssl rand -base64 48>
-KMS_PROVIDER=local
-LOCAL_MASTER_KEY=<openssl rand -hex 32>
-STORAGE_DRIVER=local
-STORAGE_LOCAL_DIR=./var/storage
-OTP_PROVIDER=console        # codes are printed in the server log
-COOKIE_SECURE=false
-DEFAULT_COUNTRY_CODE=254
-```
+`npm run setup` writes a development `.env` with random local secrets and creates the database.
+`npm run seed:dev` adds a sample book and the owner account `owner@example.com` /
+`change-me-please-123`. Verification codes are printed in the terminal running `npm run dev`.
 
 Open http://localhost:3000 (website) and http://localhost:3000/admin (dashboard).
+PDF uploads need `pdftoppm` (poppler) on the PATH; EPUB works without it.
 
 ## Production
 
