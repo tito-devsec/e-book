@@ -9,6 +9,7 @@ import { loadConfig } from '../src/config.js';
 import { createContext } from '../src/app.js';
 import { runMigrations } from '../src/migrate.js';
 import { hashPassword } from '../src/lib/crypto.js';
+import { loadBundledBook } from '../src/services/bundledBook.js';
 
 const cfg = loadConfig();
 if (cfg.isProd) {
@@ -60,6 +61,9 @@ try {
     const edition = await ctx.ingest.ingestEdition({ bookId: book.id, buffer: await sampleEpub(), label: 'Development sample', adminId: null });
     await pool.query('UPDATE books SET cover_storage_key=$2, cover_mime=$3, current_edition_id=$4, published=true WHERE id=$1', [book.id, key, 'image/png', edition.id]);
   }
+  // The real book kept in content/ becomes the current edition (once; see bundledBook.js).
+  const bundled = await loadBundledBook(ctx);
+  if (bundled) console.log(`Loaded the book from content/ (${bundled.page_count} pages).`);
   await pool.query(`UPDATE website_settings SET value=$1 WHERE key='site'`, [{ featuredBookId: book.id }]);
   const { rows: [wa] } = await pool.query(`SELECT value FROM website_settings WHERE key='whatsapp'`);
   await pool.query(`UPDATE website_settings SET value=$1 WHERE key='whatsapp'`,
