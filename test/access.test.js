@@ -89,21 +89,47 @@ test('opening the link does not use it up; adding the book and opening the app d
   assert.equal(c.data.bookId, bookId);
   const { rows: [done] } = await env.ctx.pool.query('SELECT status FROM invitations WHERE id=$1', [inv.invitation.id]);
   assert.equal(done.status, 'CONSUMED');
-  // A claim token works only once.
-  assert.equal((await b.post('/api/access/claim', { claim: p.data.claim, deviceKey: b.jwk })).data.code, 'CLAIM_INVALID');
+  // The link is used up: another device cannot use any code from it...
+  const other = new Browser(env.base);
+  await other.newDeviceKey();
+  assert.equal((await other.post('/api/access/claim', { claim: p.data.claim, deviceKey: other.jwk })).data.code, 'CLAIM_INVALID');
+  // ...but the app on this device can always sign itself in again with the code it was added with.
+  b.cookies = {};
+  const again = await b.post('/api/access/claim', { claim: p.data.claim, deviceKey: b.jwk });
+  assert.equal(again.status, 200);
+  assert.equal(again.data.bookId, bookId);
+  const { rows: [{ n }] } = await env.ctx.pool.query('SELECT count(*)::int AS n FROM registered_devices WHERE customer_id=$1', [o.customerId]);
+  assert.equal(n, 1, 'still one device');
+  c.data.csrf = again.data.csrf;
   b.csrf = c.data.csrf;
   assert.equal((await b.get(`/api/reader/books/${bookId}/manifest`, { sign: true })).status, 200, 'app is ready to read');
 });
 
-test('an older claim token stops working when the page is opened again', async () => {
+test('reloading the page after adding the book does not break the app that was added', async () => {
+  const o = await createOrder(admin, bookId);
+  const inv = await invite(admin, o.licenseId);
+  const b = new Browser(env.base);
+  await b.newDeviceKey();
+  const added = (await openLink(b, inv.token)).p.data.claim; // the app is added with this code
+  await openLink(b, inv.token); // the page reloads afterwards
+  assert.equal((await b.post('/api/access/claim', { claim: added, deviceKey: b.jwk })).status, 200);
+  // Once used, the newer code does not work on another phone.
+  const later = (await b.post('/api/access/validate-invitation', { token: inv.token })).data.state;
+  assert.equal(later, 'CONSUMED');
+});
+
+test('a code from a used link does not work on another phone', async () => {
   const o = await createOrder(admin, bookId);
   const inv = await invite(admin, o.licenseId);
   const b = new Browser(env.base);
   await b.newDeviceKey();
   const first = (await openLink(b, inv.token)).p.data.claim;
   const second = (await openLink(b, inv.token)).p.data.claim;
-  assert.equal((await b.post('/api/access/claim', { claim: first, deviceKey: b.jwk })).data.code, 'CLAIM_INVALID');
   assert.equal((await b.post('/api/access/claim', { claim: second, deviceKey: b.jwk })).status, 200);
+  const thief = new Browser(env.base);
+  await thief.newDeviceKey();
+  assert.equal((await thief.post('/api/access/claim', { claim: first, deviceKey: thief.jwk })).data.code, 'CLAIM_INVALID');
+  assert.equal((await thief.post('/api/access/claim', { claim: second, deviceKey: thief.jwk })).data.code, 'CLAIM_INVALID');
 });
 
 test('visiting the link page alone does not activate anything', async () => {

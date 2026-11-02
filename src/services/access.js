@@ -179,24 +179,46 @@ export function createAccess({ pool, cfg, settings, events }) {
       await invitationAttemptEvent(state, inv, ip);
       throw badRequest('This link has already been used or is no longer valid.', `INVITATION_${state}`);
     }
+    // Earlier codes from this link stay valid too: the page may be reloaded after the book was
+    // added, and the app on the home screen keeps the code it was added with. Once one code is
+    // used, the link is used up and the others only work again on that same device.
     const claim = randomToken(32);
-    await pool.query(`UPDATE invitation_claims SET expires_at=now() WHERE invitation_id=$1 AND used_at IS NULL`, [inv.id]);
     await pool.query(`INSERT INTO invitation_claims (invitation_id, token_hash, expires_at) VALUES ($1,$2,$3)`,
       [inv.id, tokenHash(claim, 'claim'), inv.expires_at]);
     return claim;
+  }
+
+  async function reopenOnSameDevice(db, inv, key) {
+    if (['SUSPENDED', 'REVOKED'].includes(inv.customer_status) || inv.license_status !== 'ACTIVE') return null;
+    const { rows: [d] } = await db.query(
+      `SELECT d.id FROM registered_devices d
+         JOIN device_authorizations da ON da.device_id=d.id AND da.license_id=$3 AND da.status='ACTIVE'
+        WHERE d.customer_id=$1 AND d.key_thumbprint=$2 AND d.status='ACTIVE'`,
+      [inv.customer_id, key.thumbprint, inv.license_id]);
+    if (!d) return null;
+    const session = await createSession(db, { customerId: inv.customer_id, deviceId: d.id });
+    return { session, bookId: inv.book_id };
   }
 
   async function claimLink({ claim, deviceKey, userAgent, ip }) {
     const key = parseDeviceKey(deviceKey);
     const result = await tx(pool, async (db) => {
       const { rows: [c] } = await db.query(`SELECT * FROM invitation_claims WHERE token_hash=$1 FOR UPDATE`, [tokenHash(String(claim || ''), 'claim')]);
-      if (!c || c.used_at || new Date(c.expires_at) <= new Date()) {
-        return { error: badRequest('This link has already been used or is no longer valid.', 'CLAIM_INVALID') };
-      }
+      if (!c) return { error: badRequest('This link has already been used or is no longer valid.', 'CLAIM_INVALID') };
       const { rows: [inv] } = await db.query(
         `SELECT i.*, c.status AS customer_status, l.status AS license_status
            FROM invitations i JOIN customers c ON c.id=i.customer_id JOIN reading_licenses l ON l.id=i.license_id
           WHERE i.id=$1 FOR UPDATE OF i`, [c.invitation_id]);
+      // The book is already on this device (the app was opened with this link before and its
+      // sign-in was lost): sign the same device in again. Any other device is refused.
+      if (inv && (c.used_at || inv.status === 'CONSUMED')) {
+        const again = await reopenOnSameDevice(db, inv, key);
+        if (again) return again;
+        return { error: badRequest('This link has already been used or is no longer valid.', 'CLAIM_INVALID'), inv, state: 'CONSUMED' };
+      }
+      if (new Date(c.expires_at) <= new Date()) {
+        return { error: badRequest('This link has already been used or is no longer valid.', 'CLAIM_INVALID') };
+      }
       if (!inv || inv.status !== 'PENDING' || new Date(inv.expires_at) <= new Date()
         || ['SUSPENDED', 'REVOKED'].includes(inv.customer_status) || !['PENDING_ACTIVATION', 'ACTIVE'].includes(inv.license_status)) {
         return { error: badRequest('This link has already been used or is no longer valid.', 'CLAIM_INVALID'), inv, state: 'CONSUMED' };

@@ -160,10 +160,20 @@ function route() {
   const { pathname, search } = location;
   const q = new URLSearchParams(search);
   let m;
+  if (pathname !== '/app') firstRoute = false;
   if (pathname === '/') return viewHome();
   if ((m = pathname.match(/^\/access\/([^/]+)$/))) return viewInvitation(m[1]);
-  if (pathname === '/login') return viewNoAccess('app');
-  if (pathname === '/app') return viewLauncher();
+  if (pathname === '/login') return isStandalone() ? viewLauncher({ recover: true }) : viewNoAccess('app');
+  if (pathname === '/app') {
+    const start = firstRoute; firstRoute = false;
+    let downloadTab = false;
+    try { downloadTab = sessionStorage.getItem('invite:claim') === q.get('claim'); } catch { /* ignore */ }
+    // Refreshing the download page (its address is the app's start address): show it again.
+    if (start && downloadTab && navType !== 'navigate' && !isStandalone()) return viewInvitation('_');
+    // Opened from the home screen.
+    if (start) { try { sessionStorage.setItem('inApp', '1'); } catch { /* ignore */ } }
+    return viewLauncher();
+  }
   if (pathname === '/library') return viewLibrary();
   if ((m = pathname.match(/^\/book\/([0-9a-f-]{36})$/))) return viewBook(m[1]);
   if ((m = pathname.match(/^\/read\/([0-9a-f-]{36})$/))) return viewReader(m[1]);
@@ -171,7 +181,15 @@ function route() {
   return viewDenied(q.get('reason'));
 }
 
-const isStandalone = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+// The app is "open" when it runs from the home screen: as an installed app (standalone), or as a
+// home-screen shortcut that some phones and browsers open in a normal tab. A shortcut starts at
+// /app, so a fresh start at /app marks this tab as the app (see route()).
+const isStandalone = () => {
+  if (matchMedia('(display-mode: standalone)').matches || navigator.standalone === true) return true;
+  try { return sessionStorage.getItem('inApp') === '1'; } catch { return false; }
+};
+const navType = (() => { try { return performance.getEntriesByType('navigation')[0]?.type || 'navigate'; } catch { return 'navigate'; } })();
+let firstRoute = true;
 
 // ===========================================================================
 // Add to your device (PWA)
@@ -223,7 +241,8 @@ function showAddModal({ coverUrl, title = 'Add to your device', onAdded }) {
     h('li', {}, 'Tap ', fi('share'), ' Share in Safari'),
     h('li', {}, 'Tap ', h('strong', { text: 'Add to Home Screen' }), ', then ', h('strong', { text: 'Add' })));
   const body = h('div', { class: 'stack' });
-  const refresh = () => body.replaceChildren(ios && !installPrompt ? iosSteps : addBtn, note);
+  const already = h('p', { class: 'hint', text: 'Already have “My Books” on this phone? Just open it from your home screen: this book is added there.' });
+  const refresh = () => body.replaceChildren(ios && !installPrompt ? iosSteps : addBtn, note, !ios && !installPrompt ? already : '');
   promptWaiters.add(refresh);
   refresh();
   const modal = h('div', { class: 'modal', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'add-title' },
@@ -276,6 +295,35 @@ async function loadSession() {
 }
 
 // ===========================================================================
+// Link codes kept on the device
+//   pending: code from the latest valid link opened in the browser. On Android the browser and
+//            the added app share storage, so an app added earlier picks up a new link with it.
+//   app:     code the app was added with (its start address); signs this same phone back in.
+//   done:    codes this app has already used, so they are not sent again while signed in.
+// ===========================================================================
+const CLAIM_RE = /^[A-Za-z0-9_-]{43}$/;
+const claims = {
+  get(k) { try { const v = localStorage.getItem(`claim:${k}`); return CLAIM_RE.test(v || '') ? v : null; } catch { return null; } },
+  set(k, v) { try { localStorage.setItem(`claim:${k}`, v); } catch { /* ignore */ } },
+  remove(k) { try { localStorage.removeItem(`claim:${k}`); } catch { /* ignore */ } },
+  done() { try { return new Set(JSON.parse(localStorage.getItem('claim:done') || '[]')); } catch { return new Set(); } },
+  markDone(v) { try { localStorage.setItem('claim:done', JSON.stringify([...this.done(), v].slice(-30))); } catch { /* ignore */ } },
+};
+
+/** Use a link code from this device. Returns { bookId } or null; throws only when offline. */
+async function tryClaim(claim) {
+  try {
+    const key = await getDeviceKey(true);
+    const r = await api('POST', '/api/access/claim', { claim, deviceKey: key.publicJwk });
+    csrf = r.csrf;
+    return r;
+  } catch (err) {
+    if (err.status === 0) throw err;
+    return null;
+  }
+}
+
+// ===========================================================================
 // Invitation activation  (/access/:token)
 // ===========================================================================
 async function viewInvitation(tokenInPath) {
@@ -283,7 +331,7 @@ async function viewInvitation(tokenInPath) {
   let token = tokenInPath;
   if (tokenInPath === '_') token = sessionStorage.getItem('invite') || '';
   else { sessionStorage.setItem('invite', tokenInPath); history.replaceState({}, '', '/access/_'); }
-  if (!token) return viewNoAccess('invalid');
+  if (!token) return isStandalone() ? go('/app', true) : viewNoAccess('invalid');
 
   mount(h('div', { class: 'boot' }, h('div', { class: 'spinner', 'aria-label': 'Preparing your book' })));
   let info; let claim;
@@ -293,13 +341,23 @@ async function viewInvitation(tokenInPath) {
   } catch (err) { return viewOffline(err); }
   if (info.state !== 'VALID') {
     sessionStorage.removeItem('invite');
+    // The book is already on this device: open it instead of showing a used-link message.
+    if (isStandalone()) return go('/app', true);
+    let s = null;
+    try { s = await loadSession(); } catch { /* offline: fall through */ }
+    if (s?.authenticated && s.books.length) return viewBook(s.books[0].id, { session: s });
     return viewNoAccess(info.state === 'CONSUMED' ? 'used' : info.state === 'EXPIRED' ? 'expired' : 'invalid');
   }
   // The app added from this page starts with the claim token: its first open uses up the link
   // and signs that device in. Until then this page can be opened again.
   const manifest = document.querySelector('link[rel="manifest"]');
   if (manifest) manifest.href = `/manifest.webmanifest?claim=${claim}`;
-  if (isStandalone()) return claimAndRead(claim);
+  claims.set('pending', claim);
+  if (isStandalone()) return go('/app', true);
+  // Show the page at the app's start address: "Add to Home Screen" from the browser menu (and on
+  // iPhone) then makes an icon that opens the app with this link's code, not this page.
+  try { sessionStorage.setItem('invite:claim', claim); } catch { /* ignore */ }
+  history.replaceState({}, '', `/app?claim=${claim}`);
   if (platform() === 'ios') return viewAddToIphone(info.book);
   return viewLinkDownload(info.book);
 }
@@ -343,20 +401,6 @@ function viewAddToIphone(book) {
     h('div', { class: 'ios-pointer', 'aria-hidden': 'true' }, h('span', { text: 'Share is here' }), fi('arrow-down'))));
 }
 
-/** First open of the added app with a claim token. */
-async function claimAndRead(claim) {
-  try {
-    const key = await getDeviceKey(true);
-    const r = await api('POST', '/api/access/claim', { claim, deviceKey: key.publicJwk });
-    csrf = r.csrf;
-    sessionStorage.removeItem('invite');
-    return go(`/read/${r.bookId}`, true);
-  } catch (err) {
-    if (err.status === 0) return viewOffline(err);
-    return viewNoAccess('used');
-  }
-}
-
 /** Screens for visitors without access: used, expired or invalid links, and the bare app. */
 async function viewNoAccess(kind) {
   let pub = {};
@@ -378,19 +422,42 @@ async function viewNoAccess(kind) {
 // ===========================================================================
 // Launcher  (/app — PWA start URL)
 // ===========================================================================
-async function viewLauncher() {
-  // The added app starts with a one-time claim token (see viewInvitation).
-  const claim = new URLSearchParams(location.search).get('claim');
-  if (claim) history.replaceState({}, '', '/app');
+async function viewLauncher({ recover = false } = {}) {
+  // The added app starts with the code from the link it was added with (see viewInvitation).
+  const fromStart = new URLSearchParams(location.search).get('claim');
+  if (location.pathname !== '/app' || location.search) history.replaceState({}, '', '/app');
+  const standalone = isStandalone();
+  if (standalone && CLAIM_RE.test(fromStart || '')) claims.set('app', fromStart);
+  mount(h('div', { class: 'boot' }, h('div', { class: 'spinner', 'aria-label': 'Opening your book' })));
   let s;
   try { s = await loadSession(); } catch (err) { return viewOffline(err); }
-  if (!s.authenticated && claim && /^[A-Za-z0-9_-]{43}$/.test(claim)) return claimAndRead(claim);
-  if (!s.authenticated) {
-    if (['DEVICE_REVOKED', 'ACCOUNT_SUSPENDED'].includes(s.code)) return handleAuthError(new ApiError(403, { code: s.code }));
-    return viewNoAccess('app');
+  if (!s.authenticated && ['DEVICE_REVOKED', 'ACCOUNT_SUSPENDED'].includes(s.code)) return handleAuthError(new ApiError(403, { code: s.code }));
+
+  // Codes to use: a new link opened on this phone, and when signed out, the app's own code
+  // (it signs this same phone back in). Codes already used here are skipped while signed in.
+  const pending = standalone ? claims.get('pending') : null;
+  const own = standalone ? claims.get('app') : null;
+  let retried = false;
+  try { retried = Date.now() - Number(sessionStorage.getItem('recovered') || 0) < 30000; } catch { /* ignore */ }
+  const done = claims.done();
+  const queue = [...new Set([CLAIM_RE.test(fromStart || '') ? fromStart : null, pending, s.authenticated || retried ? null : own])]
+    .filter((c) => c && !(s.authenticated && done.has(c)));
+  let opened = null; let refused = false;
+  for (const c of queue) {
+    let r;
+    try { r = await tryClaim(c); } catch (err) { if (!s.authenticated) return viewOffline(err); break; }
+    if (c === pending) claims.remove('pending');
+    claims.markDone(c);
+    if (r) { opened = r.bookId; break; }
+    refused = true;
   }
-  if (isStandalone() && !s.device?.installed) await markInstalled();
-  if (s.books.length === 1) return go(isStandalone() ? `/read/${s.books[0].id}` : `/book/${s.books[0].id}`, true);
+  if (opened) {
+    if (recover) { try { sessionStorage.setItem('recovered', String(Date.now())); } catch { /* ignore */ } }
+    return go(standalone ? `/read/${opened}` : `/book/${opened}`, true);
+  }
+  if (!s.authenticated) return viewNoAccess(refused ? 'used' : 'app');
+  if (standalone && !s.device?.installed) await markInstalled();
+  if (s.books.length === 1) return go(standalone ? `/read/${s.books[0].id}` : `/book/${s.books[0].id}`, true);
   return go('/library', true);
 }
 
