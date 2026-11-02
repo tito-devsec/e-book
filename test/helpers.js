@@ -207,6 +207,8 @@ export function lastOtp(env, phone) {
 /** Full activation through the public API as a customer browser. */
 export async function activate(env, browser, token, phone) {
   await browser.newDeviceKey();
+  const v = await browser.post('/api/access/validate-invitation', { token });
+  if (v.data.state !== 'VALID') throw new Error(`invitation ${v.data.state}`);
   const otp = await browser.post('/api/access/request-otp', { token, phone });
   if (otp.status !== 200) throw new Error(`otp ${otp.status} ${JSON.stringify(otp.data)}`);
   const r = await browser.post('/api/access/activate', { token, challengeId: otp.data.challengeId, code: lastOtp(env, phone), deviceKey: browser.jwk });

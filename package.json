@@ -13,7 +13,7 @@
     "migrate": "node scripts/migrate.js",
     "admin:create": "node scripts/create-admin.js",
     "seed:dev": "node scripts/seed-dev.js",
-    "test": "node --test --test-concurrency=1 test/",
+    "test": "node --test --test-concurrency=1 \"test/*.test.js\"",
     "audit": "npm audit --omit=dev"
   },
   "license": "UNLICENSED",

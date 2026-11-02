@@ -84,6 +84,33 @@ export function readerRoutes({ pool, access, ingest, events, readerAuth, storage
     res.send(body);
   });
 
+  // Full-text search runs on the server and returns short snippets only, so the client never
+  // needs to download every chapter to search.
+  r.get('/books/:bookId/search', async (req, res) => {
+    const bookId = uuidParam(req.params.bookId);
+    const q = String(req.query.q || '').trim();
+    if (q.length < 2 || q.length > 100) return res.json({ results: [] });
+    await access.requireBookAccess(req.reader, bookId, req.ip);
+    const e = await currentEdition(bookId);
+    if (!e || e.format !== 'EPUB') return res.json({ results: [], supported: false });
+    const { rows } = await pool.query(`SELECT * FROM book_assets WHERE edition_id=$1 AND kind='CHAPTER' ORDER BY ordinal`, [e.id]);
+    const needle = q.toLowerCase();
+    const results = [];
+    for (const a of rows) {
+      const text = (await ingest.readAsset(e, a)).toString('utf8').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/\s+/g, ' ');
+      const lower = text.toLowerCase();
+      let from = 0; let count = 0;
+      while (count < 3 && results.length < 30) {
+        const at = lower.indexOf(needle, from);
+        if (at < 0) break;
+        results.push({ index: a.ordinal, chapter: a.title, snippet: text.slice(Math.max(0, at - 50), at + needle.length + 50).trim(), offset: at });
+        from = at + needle.length; count += 1;
+      }
+      if (results.length >= 30) break;
+    }
+    res.json({ results, supported: true });
+  });
+
   r.get('/progress/:bookId', async (req, res) => {
     const bookId = uuidParam(req.params.bookId);
     await access.requireBookAccess(req.reader, bookId, req.ip);
