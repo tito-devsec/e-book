@@ -227,6 +227,8 @@ function loadPdfjs() {
   return pdfjsPromise;
 }
 const pdfjsDir = () => path.dirname(require.resolve('pdfjs-dist/package.json'));
+/** pdf.js insists that its font and character-map folders end with "/" (Windows paths use "\\"). */
+export const factoryUrl = (dir) => `${String(dir).replace(/\\/g, '/').replace(/\/+$/, '')}/`;
 
 export async function renderPdfPages(buf, cfg, onPage) {
   const pdfjs = await loadPdfjs();
@@ -235,8 +237,8 @@ export async function renderPdfPages(buf, cfg, onPage) {
   try {
     task = pdfjs.getDocument({
       data: new Uint8Array(buf),
-      standardFontDataUrl: `${path.join(base, 'standard_fonts')}${path.sep}`,
-      cMapUrl: `${path.join(base, 'cmaps')}${path.sep}`,
+      standardFontDataUrl: factoryUrl(path.join(base, 'standard_fonts')),
+      cMapUrl: factoryUrl(path.join(base, 'cmaps')),
       cMapPacked: true,
       isEvalSupported: false,
       enableXfa: false,
@@ -246,6 +248,7 @@ export async function renderPdfPages(buf, cfg, onPage) {
     doc = await task.promise;
   } catch (err) {
     task?.destroy();
+    if (process.env.NODE_ENV !== 'test') console.error('PDF could not be opened:', err?.message || err);
     if (err?.name === 'PasswordException') throw badRequest('The PDF is password-protected. Upload a version without a password.', 'INVALID_PDF');
     throw badRequest('The PDF could not be opened', 'INVALID_PDF');
   }

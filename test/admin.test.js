@@ -368,3 +368,10 @@ test('the book kept in content/ is loaded once as the current edition and never 
   assert.equal(await loadBundledBook(env.ctx, { slug: 'no-such-book', file }), null);
   await fs.rm(dir, { recursive: true, force: true });
 });
+
+test('PDF font folders end with a forward slash on every operating system (Windows paths)', async () => {
+  const { factoryUrl } = await import('../src/services/ingest.js');
+  assert.equal(factoryUrl('C:\\Users\\BAB AL SAFA\\e-book\\node_modules\\pdfjs-dist\\standard_fonts'), 'C:/Users/BAB AL SAFA/e-book/node_modules/pdfjs-dist/standard_fonts/');
+  assert.equal(factoryUrl('C:\\x\\cmaps\\'), 'C:/x/cmaps/');
+  assert.equal(factoryUrl('/opt/app/cmaps/'), '/opt/app/cmaps/');
+});
