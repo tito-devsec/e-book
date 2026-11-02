@@ -17,7 +17,7 @@ function h(tag, attrs = {}, ...children) {
     else if (k === 'text') el.textContent = v;
     else el.setAttribute(k, v === true ? '' : v);
   }
-  for (const c of children.flat()) {
+  for (const c of children.flat(Infinity)) {
     if (c === null || c === undefined || c === false) continue;
     el.append(c instanceof Node ? c : document.createTextNode(String(c)));
   }
@@ -610,7 +610,9 @@ class Reader {
     return this.html.get(i);
   }
 
+  /** Load chapter images through signed requests. Returns how many were attached. */
   async hydrateImages(container) {
+    let loaded = 0;
     for (const img of container.querySelectorAll('img[data-asset]')) {
       const id = img.getAttribute('data-asset');
       if (!this.assets.has(id)) {
@@ -620,7 +622,10 @@ class Reader {
         } catch { continue; }
       }
       img.src = this.assets.get(id);
+      loaded += 1;
     }
+    if (loaded) await Promise.all([...container.querySelectorAll('img')].map((i) => (i.complete ? null : new Promise((r) => { i.onload = r; i.onerror = r; }))));
+    return loaded;
   }
 
   // --- Layout ---------------------------------------------------------------
@@ -648,7 +653,8 @@ class Reader {
       flow.querySelectorAll('a[href]').forEach((a) => { a.target = '_blank'; a.rel = 'noopener noreferrer'; });
       vp.replaceChildren(flow);
       layer.dataset.idx = String(i);
-      this.hydrateImages(flow).then(() => { if (layer === this.top) this.relayout(true); });
+      // Images change the column layout, so re-measure once they are in (only if there were any).
+      this.hydrateImages(flow).then((n) => { if (n && layer === this.top && flow.isConnected) this.remeasure(); });
     }
     const flow = vp.querySelector('.flow');
     const { w, gap, step } = this.geometry();
@@ -690,6 +696,13 @@ class Reader {
     this.top.classList.remove('anim');
     this.top.style.transform = 'rotateY(0deg)';
     this.top.querySelector('.shade').style.opacity = '0';
+  }
+
+  /** Recount pages of the current chapter without re-rendering it. */
+  async remeasure() {
+    const ratio = this.pages > 1 ? this.loc.page / (this.pages - 1) : 0;
+    this.pages = await this.paint(this.top, this.loc.index, 0);
+    await this.show({ index: this.loc.index, page: Math.round(ratio * (this.pages - 1)) });
   }
 
   async relayout(keep) {
