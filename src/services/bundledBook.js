@@ -12,7 +12,7 @@ export async function loadBundledBook({ pool, ingest, logger }, { slug = BUNDLED
   try { buffer = await fs.readFile(file); } catch { return null; }
   const { rows: [book] } = await pool.query('SELECT id FROM books WHERE slug=$1', [slug]);
   if (!book) return null;
-  const { rowCount } = await pool.query('SELECT 1 FROM book_editions WHERE book_id=$1 AND original_sha256=$2', [book.id, sha256Hex(buffer)]);
+  const { rowCount } = await pool.query(`SELECT 1 FROM book_editions WHERE book_id=$1 AND original_sha256=$2 AND status IN ('READY','ARCHIVED')`, [book.id, sha256Hex(buffer)]);
   if (rowCount) return null;
   const edition = await ingest.ingestEdition({ bookId: book.id, buffer, label: path.basename(file), adminId: null });
   await pool.query('UPDATE books SET current_edition_id=$2, preferred_format=$3, published=true, updated_at=now() WHERE id=$1', [book.id, edition.id, edition.format]);

@@ -366,6 +366,10 @@ test('the book kept in content/ is loaded once as the current edition and never 
   assert.equal(after.current_edition_id, first.id);
   assert.equal(await loadBundledBook(env.ctx, { slug: b.slug, file }), null, 'the same file is not loaded twice');
   assert.equal(await loadBundledBook(env.ctx, { slug: 'no-such-book', file }), null);
+  // An earlier attempt that failed must not stop the file from being loaded again.
+  await env.ctx.pool.query(`UPDATE book_editions SET status='FAILED' WHERE id=$1`, [first.id]);
+  const retry = await loadBundledBook(env.ctx, { slug: b.slug, file });
+  assert.ok(retry && retry.status === 'READY' && retry.id !== first.id, 'loaded again after a failed attempt');
   await fs.rm(dir, { recursive: true, force: true });
 });
 
