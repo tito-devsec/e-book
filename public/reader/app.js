@@ -634,7 +634,8 @@ class Reader {
     this.loc = { index: Math.min(progress?.location?.index ?? 0, this.items.length - 1), page: progress?.location?.page ?? 0 };
     this.pages = 1;
     this.html = new Map(); // chapter index -> sanitized HTML (memory only)
-    this.assets = new Map(); // asset id -> blob URL
+    this.assets = new Map(); // asset id -> blob URL (EPUB images)
+    this.pages_ = new Map(); // PDF page id -> ImageBitmap
     this.busy = false;
     this.fs = Number(prefs.get('fs', 19));
     this.theme = prefs.get('theme', 'sepia');
@@ -644,11 +645,17 @@ class Reader {
     const id = this.items[i].id;
     const url = `/api/reader/books/${this.bookId}/content/${id}`;
     if (this.isPdf) {
-      if (!this.assets.has(id)) {
+      // Pages are decoded straight into memory bitmaps and drawn on a canvas: no image URL or
+      // file exists to save, and only a few neighbouring pages are kept.
+      if (!this.pages_.has(id)) {
         const res = await api('GET', url, undefined, { signed: true, raw: true });
-        this.assets.set(id, URL.createObjectURL(await res.blob()));
+        this.pages_.set(id, await createImageBitmap(await res.blob()));
+        for (const [k, bmp] of this.pages_) {
+          if (this.pages_.size <= 6) break;
+          if (k !== id) { bmp.close(); this.pages_.delete(k); }
+        }
       }
-      return this.assets.get(id);
+      return this.pages_.get(id);
     }
     if (!this.html.has(i)) {
       const res = await api('GET', url, undefined, { signed: true, raw: true });
@@ -688,8 +695,11 @@ class Reader {
   async paint(layer, i, p) {
     const vp = layer.querySelector('.viewport');
     if (this.isPdf) {
-      const src = await this.fetchItem(i);
-      vp.replaceChildren(h('div', { class: 'pdfpage' }, h('img', { src, alt: `Page ${i + 1}` })));
+      const bmp = await this.fetchItem(i);
+      const c = h('canvas', { role: 'img', 'aria-label': `Page ${i + 1}` });
+      c.width = bmp.width; c.height = bmp.height;
+      c.getContext('2d').drawImage(bmp, 0, 0);
+      vp.replaceChildren(h('div', { class: 'pdfpage' }, c));
       layer.dataset.idx = String(i);
       layer.querySelector('.pageno').textContent = `${i + 1} / ${this.items.length}`;
       return 1;
@@ -1015,7 +1025,8 @@ class Reader {
     clearTimeout(this.saveTimer);
     this.closeDrawer();
     for (const u of this.assets.values()) URL.revokeObjectURL(u);
-    this.assets.clear(); this.html.clear();
+    for (const b of this.pages_.values()) b.close();
+    this.assets.clear(); this.html.clear(); this.pages_.clear();
   }
 
   // --- Mount -------------------------------------------------------------------
@@ -1023,7 +1034,8 @@ class Reader {
     const layer = (cls) => h('div', { class: `layer ${cls}` }, h('div', { class: 'viewport' }), h('div', { class: 'pageno' }), h('div', { class: 'shade' }));
     this.top = layer('top'); this.under = layer('under');
     const wm = h('div', { class: 'watermark', 'aria-hidden': 'true' });
-    for (let i = 0; i < 24; i += 1) wm.append(h('span', { text: this.manifest.watermark }));
+    // PDF pages already carry the buyer's watermark in their pixels; EPUB text gets an overlay.
+    if (!this.isPdf) for (let i = 0; i < 24; i += 1) wm.append(h('span', { text: this.manifest.watermark }));
     const stage = h('div', { class: 'stage' }, h('div', { class: 'book' }, this.under, this.top), wm,
       h('button', { class: 'zone l', 'aria-label': 'Previous page', tabindex: '-1', onclick: (e) => e.preventDefault() }),
       h('button', { class: 'zone r', 'aria-label': 'Next page', tabindex: '-1', onclick: (e) => e.preventDefault() }));
@@ -1065,6 +1077,27 @@ class Reader {
       else if (e.key.toLowerCase() === 'f') { e.preventDefault(); this.showSearch(); }
     };
     addEventListener('keydown', onKey);
+    // Privacy shield: blur the page whenever the reader is not the focused window (app switcher
+    // thumbnails, desktop screen-capture tools that take focus) and block print/save shortcuts.
+    // A deterrent only; see docs/SECURITY_LIMITATIONS.md.
+    const shield = (on) => this.el.classList.toggle('shielded', on);
+    const onBlur = () => shield(true);
+    const onFocus = () => shield(false);
+    const onVis = () => shield(document.visibilityState !== 'visible');
+    const onGuardKey = (e) => {
+      if (e.target.closest?.('input, textarea')) return;
+      const k = e.key.toLowerCase();
+      if ((e.ctrlKey || e.metaKey) && ['p', 's', 'c', 'a'].includes(k)) { e.preventDefault(); }
+      if (k === 'printscreen') { shield(true); setTimeout(() => { if (document.hasFocus()) shield(false); }, 1500); }
+    };
+    addEventListener('blur', onBlur); addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVis);
+    addEventListener('keyup', onGuardKey); addEventListener('keydown', onGuardKey);
+    onCleanup(() => {
+      removeEventListener('blur', onBlur); removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVis);
+      removeEventListener('keyup', onGuardKey); removeEventListener('keydown', onGuardKey);
+    });
     let rt;
     const onResize = () => { clearTimeout(rt); rt = setTimeout(() => this.relayout(true), 200); };
     addEventListener('resize', onResize);

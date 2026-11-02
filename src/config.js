@@ -25,18 +25,16 @@ export function loadConfig() {
     isProd,
     isTest: nodeEnv === 'test',
     port: int(env.PORT, 3000),
-    // Extra local ports so each application can have its own port in development or on one
-    // server (e.g. reader 3000, website 3001, admin 3002). Which app answers on which port is
-    // decided by the *_BASE_URL values.
-    publicPort: int(env.PUBLIC_PORT, 0),
+    // Optional extra local ports so the dashboard can run on its own port (e.g. reader 3000,
+    // admin 3002). Which app answers on which port is decided by the *_BASE_URL values.
     adminPort: int(env.ADMIN_PORT, 0),
     readerPort: int(env.READER_PORT, 0),
     databaseUrl: required('DATABASE_URL'),
     databaseSsl: bool(env.DATABASE_SSL, false),
-    // Hosts. When set, each application is served only on its own host.
-    publicBaseUrl: env.PUBLIC_BASE_URL || `http://localhost:${int(env.PORT, 3000)}`,
+    // Customer site (download page, invitations, reader). Invitation links use this address.
+    readerBaseUrl: env.READER_BASE_URL || env.PUBLIC_BASE_URL || `http://localhost:${int(env.PORT, 3000)}`,
+    // Dashboard. When it is a different host or port, the dashboard is served only there.
     adminBaseUrl: env.ADMIN_BASE_URL || '',
-    readerBaseUrl: env.READER_BASE_URL || '',
     trustProxy: env.TRUST_PROXY || (isProd ? '1' : 'false'),
     cookieSecure: bool(env.COOKIE_SECURE, isProd),
     // Pepper mixed into token/OTP/IP hashes. Must be long and random.
@@ -58,8 +56,9 @@ export function loadConfig() {
     clamavHost: env.CLAMAV_HOST || '',
     clamavPort: int(env.CLAMAV_PORT, 3310),
     requireMalwareScan: bool(env.REQUIRE_MALWARE_SCAN, false),
-    pdftoppmPath: env.PDFTOPPM_PATH || 'pdftoppm',
-    pdfRenderDpi: int(env.PDF_RENDER_DPI, 110),
+    // PDF pages are rendered to images on the server (pdf.js). Scale 1.75 ≈ 1040 px wide for A4.
+    pdfRenderScale: Number(env.PDF_RENDER_SCALE) || 1.75,
+    pdfMaxPages: int(env.PDF_MAX_PAGES, 1500),
     // OTP delivery
     otpProvider: env.OTP_PROVIDER || (isProd ? 'whatsapp_cloud' : 'console'),
     whatsappApiVersion: env.WHATSAPP_API_VERSION || 'v21.0',

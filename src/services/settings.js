@@ -15,7 +15,7 @@ export const POLICY_SCHEMA = {
   content_requests_per_minute: { type: 'int', min: 20, max: 2000 },
 };
 
-export const WEBSITE_KEYS = ['site', 'hero', 'about', 'learn', 'author', 'benefits', 'faq', 'cta', 'footer', 'whatsapp'];
+export const WEBSITE_KEYS = ['site', 'whatsapp'];
 
 export function createSettings(pool) {
   let cache = null; let cacheAt = 0;

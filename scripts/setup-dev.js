@@ -1,5 +1,5 @@
 // DEVELOPMENT ONLY. Creates a .env with random local secrets and creates the database.
-// Usage: npm run setup -- [--reader-port 3000] [--public-port 3001] [--admin-port 3002] [--db-user postgres] [--db-password secret] [--db-host localhost] [--db-port 5432] [--db-name bookapp]
+// Usage: npm run setup -- [--reader-port 3000] [--admin-port 3002] [--db-user postgres] [--db-password secret] [--db-host localhost] [--db-port 5432] [--db-name bookapp]
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -24,24 +24,23 @@ const db = {
 const enc = encodeURIComponent;
 const databaseUrl = `postgres://${enc(db.user)}:${enc(db.password)}@${db.host}:${db.port}/${db.name}`;
 
-// Each application on its own local port: reader/download site, sales website, admin dashboard.
+// Customer site and dashboard on separate local ports.
 const readerPort = args['reader-port'] || '3000';
-const publicPort = args['public-port'] || '3001';
 const adminPort = args['admin-port'] || '3002';
 const portSettings = {
   PORT: readerPort,
   READER_PORT: readerPort,
-  PUBLIC_PORT: publicPort,
   ADMIN_PORT: adminPort,
   READER_BASE_URL: `http://localhost:${readerPort}`,
-  PUBLIC_BASE_URL: `http://localhost:${publicPort}`,
   ADMIN_BASE_URL: `http://localhost:${adminPort}`,
 };
+const removed = ['PUBLIC_PORT', 'PUBLIC_BASE_URL']; // the separate sales website no longer exists
 
 if (fs.existsSync(envPath) && !('force' in args)) {
   // Keep existing secrets (changing LOCAL_MASTER_KEY would make stored books unreadable);
   // only set the port layout.
   let text = fs.readFileSync(envPath, 'utf8');
+  for (const k of removed) text = text.replace(new RegExp(`^${k}=.*\\n?`, 'm'), '');
   for (const [k, v] of Object.entries(portSettings)) {
     const re = new RegExp(`^${k}=.*$`, 'm');
     text = re.test(text) ? text.replace(re, `${k}=${v}`) : `${text.replace(/\n*$/, '\n')}${k}=${v}\n`;

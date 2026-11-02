@@ -2,8 +2,8 @@
 
 ## Setup
 
-Follow the development quick start in [README.md](README.md). You need PostgreSQL and
-`pdftoppm` locally. Create a separate test database:
+Follow the development quick start in [README.md](README.md). You need PostgreSQL locally.
+Create a separate test database:
 
 ```bash
 createdb bookapp_test

@@ -29,7 +29,7 @@ You need an internet connection to read. Your book cannot be downloaded as a fil
 ## Opening the book later
 
 - **Installed app**: tap **My Books** on your home screen or desktop.
-- **Browser**: go to the reader address you were given (for example `reader.example.com`).
+- **Browser**: go to the reader address you were given (for example `books.example.com`).
 
 If you are asked to sign in, enter your WhatsApp number and the code you receive. You never need
 to buy again or ask for a new link.

@@ -21,7 +21,7 @@ import { customerRoutes } from './routes/customer.js';
 import { readerRoutes } from './routes/reader.js';
 import { adminAuthRoutes } from './routes/adminAuth.js';
 import { adminRoutes } from './routes/admin.js';
-import { siteRoutes, coverRoutes } from './routes/site.js';
+import { coverRoutes } from './routes/site.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 export const PUBLIC_DIR = path.resolve(here, '..', 'public');
@@ -49,22 +49,20 @@ export function createApp(ctx) {
   app.disable('x-powered-by');
   app.set('trust proxy', cfg.trustProxy === 'false' ? false : (/^\d+$/.test(cfg.trustProxy) ? Number(cfg.trustProxy) : cfg.trustProxy));
 
-  // Which application answers a request. In production each app has its own domain and the
-  // Host header decides. For local hosts (localhost / 127.0.0.1) the listening port decides, so
-  // the reader also works when opened from a phone on the LAN via the computer's IP address.
+  // Two applications: the customer site (default) and the dashboard. In production each has its
+  // own domain and the Host header decides. For local hosts (localhost / 127.0.0.1) the listening
+  // port decides, so the customer site also works from a phone on the LAN via the PC's IP.
   const parse = (u) => (u ? new URL(u) : null);
-  const urls = { public: parse(cfg.publicBaseUrl), admin: parse(cfg.adminBaseUrl), reader: parse(cfg.readerBaseUrl) };
-  const sameApp = (a, b) => Boolean(a && b && a.host === b.host);
-  const separate = { admin: Boolean(urls.admin && !sameApp(urls.admin, urls.public)), reader: Boolean(urls.reader && !sameApp(urls.reader, urls.public)) };
+  const urls = { admin: parse(cfg.adminBaseUrl), reader: parse(cfg.readerBaseUrl) };
+  const separateAdmin = Boolean(urls.admin && urls.admin.host !== urls.reader.host);
   const isLocal = (u) => ['localhost', '127.0.0.1', '[::1]'].includes(u.hostname);
   const onApp = (u, req) => (isLocal(u)
     ? req.socket.localPort === Number(u.port || (u.protocol === 'https:' ? 443 : 80))
     : req.get('host') === u.host);
-  // When an app has its own host/port, it is served only there and other apps are not served on it.
   const gate = (kind) => (req, res, next) => {
-    if (kind !== 'public') return separate[kind] && !onApp(urls[kind], req) ? next('router') : next();
-    if ((separate.admin && onApp(urls.admin, req)) || (separate.reader && onApp(urls.reader, req))) return next('router');
-    return next();
+    if (!separateAdmin) return next();
+    const adminHost = onApp(urls.admin, req);
+    return (kind === 'admin') === adminHost ? next() : next('router');
   };
   const gated = (kind, router) => { const r = express.Router(); r.use(gate(kind), router); return r; };
 
@@ -90,7 +88,6 @@ export function createApp(ctx) {
   const staticOpts = { index: false, fallthrough: true, maxAge: cfg.isProd ? '1h' : 0 };
   app.use('/assets', express.static(path.join(PUBLIC_DIR, 'assets'), staticOpts));
   app.use('/static/shared', express.static(path.join(PUBLIC_DIR, 'shared'), staticOpts));
-  app.use('/static/site', gated('public', express.static(path.join(PUBLIC_DIR, 'site'), staticOpts)));
   app.use('/static/admin', gated('admin', express.static(path.join(PUBLIC_DIR, 'admin'), staticOpts)));
   app.use('/static/reader', gated('reader', express.static(path.join(PUBLIC_DIR, 'reader'), staticOpts)));
 
@@ -100,7 +97,7 @@ export function createApp(ctx) {
   const adminShell = (req, res) => { res.set('Cache-Control', 'no-store'); res.sendFile(path.join(PUBLIC_DIR, 'admin', 'index.html')); };
   const adminPages = express.Router();
   adminPages.get(['/admin', '/admin/*splat'], adminShell);
-  if (separate.admin) adminPages.get('/', (req, res) => res.redirect('/admin'));
+  if (separateAdmin) adminPages.get('/', (req, res) => res.redirect('/admin'));
   app.use(gated('admin', adminPages));
 
   // ---- Reader PWA -----------------------------------------------------------------
@@ -119,12 +116,12 @@ export function createApp(ctx) {
     res.set('Service-Worker-Allowed', '/');
     res.type('application/javascript').sendFile(path.join(PUBLIC_DIR, 'reader', 'sw.js'));
   });
-  // On its own host/port, the reader's home page is the book download page.
-  if (separate.reader) readerPages.get('/', readerShell);
+  // The customer site's home page is the single-screen book download page.
+  readerPages.get('/', readerShell);
+  readerPages.get('/robots.txt', (req, res) => {
+    res.type('text/plain').send('User-agent: *\nAllow: /$\nDisallow: /access/\nDisallow: /app\nDisallow: /read/\nDisallow: /book/\nDisallow: /library\nDisallow: /api/\n');
+  });
   app.use(gated('reader', readerPages));
-
-  // ---- Public marketing site --------------------------------------------------------
-  app.use(gated('public', siteRoutes({ ...ctx, publicDir: PUBLIC_DIR })));
 
   // ---- Errors ---------------------------------------------------------------------
   app.use((req, res) => {

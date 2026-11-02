@@ -347,7 +347,7 @@ const NAV = [
   ['Access', [['/admin/invitations', 'Access Invitations', 'customers.view', 'invitations'], ['/admin/devices', 'Registered Devices', 'customers.view', 'devices'], ['/admin/licenses', 'Reading Licenses', 'customers.view', 'licenses']]],
   ['Books', [['/admin/books', 'Books', 'books.manage', 'books'], ['/admin/editions', 'Book Editions', 'books.manage', 'editions']]],
   ['Monitoring', [['/admin/activity', 'Reading Activity', 'security.view', 'activity'], ['/admin/security', 'Security Events', 'security.view', 'security'], ['/admin/audit', 'Audit Logs', 'audit.view', 'audit']]],
-  ['Website', [['/admin/website', 'Website Content', 'content.manage', 'website'], ['/admin/whatsapp', 'WhatsApp Settings', 'content.manage', 'whatsapp']]],
+  ['Store', [['/admin/whatsapp', 'Download Page & WhatsApp', 'content.manage', 'whatsapp']]],
   ['System', [['/admin/admins', 'Administrators', 'admins.manage', 'admins'], ['/admin/settings', 'System Settings', 'settings.manage', 'settings'], ['/admin/account', 'My Account', null, 'account']]],
 ];
 
@@ -435,7 +435,7 @@ async function route() {
     if (p === '/admin/activity') return await viewActivity(q);
     if (p === '/admin/security') return await viewSecurity(q);
     if (p === '/admin/audit') return await viewAudit(q);
-    if (p === '/admin/website') return await viewWebsite();
+    if (p === '/admin/website') return go('/admin/whatsapp');
     if (p === '/admin/whatsapp') return await viewWhatsapp();
     if (p === '/admin/admins') return await viewAdmins();
     if (p === '/admin/settings') return await viewSettings();
@@ -668,7 +668,7 @@ async function viewBook(id) {
   });
 
   page(book.title,
-    h('p', {}, link('/admin/books', '← All books'), '  ', book.published ? link('/', 'View on website') : null),
+    h('p', {}, link('/admin/books', '← All books')),
     h('div', { class: 'row-actions' },
       book.published
         ? btn('Unpublish', () => act(() => api('POST', `/api/admin/books/${id}/unpublish`), { ok: 'Unpublished' }), 'btn btn-small btn-danger')
@@ -971,6 +971,7 @@ function licensesTable(rows) {
   return table([
     { label: 'Customer', render: (l) => (l.full_name ? link(`/admin/customers/${l.customer_id}`, l.full_name) : '—') },
     { label: 'Book', key: 'book_title' },
+    { label: 'Watermark ref', render: (l) => h('span', { class: 'mono', text: l.trace_code || '—', title: 'Printed on every page this buyer views' }) },
     { label: 'Order', render: (l) => (l.order_reference ? link(`/admin/orders/${l.order_id}`, l.order_reference) : link(`/admin/orders/${l.order_id}`, 'Open order')) },
     { label: 'Status', render: (l) => h('div', {}, badge(l.status), l.status_reason ? h('div', { class: 'sub', text: l.status_reason }) : null) },
     { label: 'Devices', render: (l) => `${l.active_devices ?? '—'} / ${l.max_devices}` },
@@ -989,7 +990,8 @@ function licensesTable(rows) {
 async function viewLicenses(q) {
   const d = await api('GET', `/api/admin/licenses?${q}`);
   page('Reading Licenses',
-    filterBar(q, [{ name: 'status', label: 'All statuses', options: ['PENDING_ACTIVATION', 'ACTIVE', 'SUSPENDED', 'REVOKED', 'EXPIRED'].map((s) => [s, s.replace('_', ' ')]) }]),
+    h('p', { class: 'hint', text: 'Every PDF page a buyer views carries their name, masked number and watermark ref. To trace a leaked page, enter the ref printed on it.' }),
+    filterBar(q, [{ name: 'ref', label: 'Watermark ref, e.g. 3FA9C21B' }, { name: 'status', label: 'All statuses', options: ['PENDING_ACTIVATION', 'ACTIVE', 'SUSPENDED', 'REVOKED', 'EXPIRED'].map((s) => [s, s.replace('_', ' ')]) }]),
     licensesTable(d.licenses), pager({ ...d, rows: d.licenses.length }, (p) => setQuery({ page: p })));
 }
 
@@ -1029,7 +1031,7 @@ async function viewSecurity(q) {
 async function viewAudit(q) {
   const d = await api('GET', `/api/admin/audit-logs?${q}`);
   page('Audit Logs',
-    filterBar(q, [{ name: 'action', label: 'Action contains' }, { name: 'entityType', label: 'Any entity', options: ['book', 'book_edition', 'customer', 'order', 'invitation', 'license', 'device', 'administrator', 'website_settings', 'testimonial', 'system_settings', 'security_event'].map((x) => [x, x]) }]),
+    filterBar(q, [{ name: 'action', label: 'Action contains' }, { name: 'entityType', label: 'Any entity', options: ['book', 'book_edition', 'customer', 'order', 'invitation', 'license', 'device', 'administrator', 'website_settings', 'system_settings', 'security_event'].map((x) => [x, x]) }]),
     table([
       { label: 'When', render: (l) => fmtDate(l.created_at) }, { label: 'Administrator', render: (l) => l.admin_name || 'System' },
       { label: 'Action', key: 'action' }, { label: 'Entity', render: (l) => h('div', {}, l.entity_type, h('div', { class: 'sub mono', text: l.entity_id || '' })) },
@@ -1040,81 +1042,23 @@ async function viewAudit(q) {
 // ===========================================================================
 // Website content and WhatsApp
 // ===========================================================================
-function listEditor(items, keys) {
-  const wrap = h('div', { class: 'list-editor' });
-  const rows = [];
-  const addRow = (val = {}) => {
-    const inputs = {};
-    const row = h('div', { class: 'item' }, keys.map(([k, label, long]) => {
-      const el = long ? h('textarea', { rows: 3 }) : h('input', { type: 'text' });
-      el.value = val[k] || ''; inputs[k] = el;
-      return h('div', { class: 'field' }, h('label', { text: label }), el);
-    }), btn('Remove', () => { row.remove(); rows.splice(rows.indexOf(entry), 1); }, 'btn btn-small btn-danger'));
-    const entry = { inputs };
-    rows.push(entry);
-    list.append(row);
-  };
-  const list = h('div');
-  wrap.append(list, btn('+ Add item', () => addRow()));
-  (items || []).forEach(addRow);
-  return { el: wrap, value: () => rows.map((r) => Object.fromEntries(Object.entries(r.inputs).map(([k, el]) => [k, el.value]))) };
-}
-
-async function viewWebsite() {
-  const [{ content, testimonials }, { books }] = await Promise.all([api('GET', '/api/admin/website'), api('GET', '/api/admin/books')]);
-  const save = (key, value) => act(() => api('PUT', `/api/admin/website/${key}`, value), { ok: 'Saved', reload: false });
-  const simple = (key, title, fields) => {
-    const f = buildForm(fields, content[key] || {}, { submit: 'Save', onSubmit: (v) => save(key, v) });
-    return h('section', { class: 'card' }, h('h2', { text: title }), f.form);
-  };
-  const listSection = (key, title, keys) => {
-    const heading = h('input', { type: 'text' }); heading.value = content[key]?.heading || '';
-    const ed = listEditor(content[key]?.items, keys);
-    return h('section', { class: 'card' }, h('h2', { text: title }), h('div', { class: 'field' }, h('label', { text: 'Section heading' }), heading), ed.el,
-      h('div', { class: 'row-actions' }, btn('Save', () => save(key, { heading: heading.value, items: ed.value() }), 'btn btn-primary')));
-  };
-  const tForm = buildForm([
-    { name: 'authorName', label: 'Name', required: true }, { name: 'authorTitle', label: 'Title or role' },
-    { name: 'rating', label: 'Rating (1-5)', type: 'number', min: 1, maxv: 5, nullable: true }, { name: 'sortOrder', label: 'Order', type: 'number', min: 0, default: 0 },
-    { name: 'quote', label: 'Quote', type: 'textarea', required: true, full: true }, { name: 'published', label: 'Show on website', type: 'checkbox', default: true },
-  ], {}, { submit: 'Add testimonial', onSubmit: (v) => act(() => api('POST', '/api/admin/testimonials', v), { ok: 'Testimonial added' }) });
-
-  page('Marketing Website Content',
-    h('p', {}, h('a', { href: '/', target: '_blank', rel: 'noopener' }, 'Open the website ↗'), h('span', { class: 'hint', text: '  Book title, price and cover come from the featured book.' })),
-    simple('site', 'Site and search engines', [
-      { name: 'siteName', label: 'Site name', max: 120 },
-      { name: 'featuredBookId', label: 'Featured book', type: 'select', options: [['', 'First published book'], ...books.map((b) => [b.id, b.title])], nullable: true },
-      { name: 'seoDescription', label: 'Search description', type: 'textarea', full: true, max: 300 }]),
-    simple('hero', 'Hero', [{ name: 'headline', label: 'Headline (defaults to book title)', full: true }, { name: 'subheadline', label: 'Short description', type: 'textarea', full: true }]),
-    simple('about', 'About the book', [{ name: 'heading', label: 'Heading' }, { name: 'body', label: 'Text (defaults to the book description)', type: 'textarea', full: true, rows: 8 }]),
-    listSection('learn', 'What readers will learn', [['title', 'Point'], ['text', 'Explanation', true]]),
-    simple('author', 'Author introduction', [{ name: 'heading', label: 'Heading' }, { name: 'name', label: 'Author name' }, { name: 'bio', label: 'Biography', type: 'textarea', full: true, rows: 8 }]),
-    listSection('benefits', 'Book benefits', [['title', 'Benefit'], ['text', 'Explanation', true]]),
-    listSection('faq', 'Frequently asked questions', [['question', 'Question'], ['answer', 'Answer', true]]),
-    simple('cta', 'Final call to action', [{ name: 'heading', label: 'Heading' }, { name: 'body', label: 'Text', type: 'textarea', full: true }]),
-    simple('footer', 'Footer', [{ name: 'copyright', label: 'Copyright line', full: true }]),
-    h('section', { class: 'card' }, h('h2', { text: 'Testimonials' }),
-      table([
-        { label: 'Name', render: (t) => h('div', {}, t.author_name, h('div', { class: 'sub', text: t.author_title })) },
-        { label: 'Quote', key: 'quote' }, { label: 'Rating', render: (t) => (t.rating ? '★'.repeat(t.rating) : '—') },
-        { label: 'Shown', render: (t) => badge(t.published ? 'ACTIVE' : 'DISABLED') },
-        { label: '', render: (t) => h('div', { class: 'actions' },
-          btn(t.published ? 'Hide' : 'Show', () => act(() => api('PUT', `/api/admin/testimonials/${t.id}`, { authorName: t.author_name, authorTitle: t.author_title, quote: t.quote, rating: t.rating, published: !t.published, sortOrder: t.sort_order, bookId: t.book_id }), { ok: 'Updated' })),
-          btn('Delete', async () => { if (await ask('Delete testimonial', `Delete the testimonial from ${t.author_name}?`, [], 'Delete', true)) act(() => api('DELETE', `/api/admin/testimonials/${t.id}`), { ok: 'Deleted' }); }, 'btn btn-small btn-danger')) },
-      ], testimonials, 'No testimonials yet.'),
-      h('h2', { text: 'Add a testimonial' }), tForm.form));
-}
-
 async function viewWhatsapp() {
-  const { content } = await api('GET', '/api/admin/website');
+  const [{ content }, { books }] = await Promise.all([api('GET', '/api/admin/website'), api('GET', '/api/admin/books')]);
+  const published = books.filter((b) => b.published);
+  const featured = buildForm([
+    { name: 'featuredBookId', label: 'Book shown on the download page', type: 'select', nullable: true,
+      options: [['', 'First published book'], ...published.map((b) => [b.id, b.title])],
+      hint: 'Visitors to the customer site see this book with DOWNLOAD BOOK and START READING. Only published books can be chosen.' },
+  ], content.site || {}, { submit: 'Save', columns: false, onSubmit: (v) => act(() => api('PUT', '/api/admin/website/site', v), { ok: 'Saved', reload: false }) });
   const f = buildForm([
-    { name: 'number', label: 'Business WhatsApp number', placeholder: '+254712345678', hint: 'Used for the Order on WhatsApp buttons on the website' },
+    { name: 'number', label: 'Business WhatsApp number', placeholder: '+254712345678', hint: 'Visitors who have not bought yet get a "Buy this book on WhatsApp" button that opens a chat with this number' },
     { name: 'orderMessage', label: 'Prefilled order message', type: 'textarea', full: true, hint: 'Placeholders: {book_title}' },
     { name: 'invitationTemplate', label: 'Invitation message sent to customers', type: 'textarea', full: true, rows: 10, required: true,
       hint: 'Placeholders: {customer_name}, {book_title}, {invitation_link} (required), {expiry_hours}' },
   ], content.whatsapp || {}, { submit: 'Save WhatsApp settings', onSubmit: (v) => act(() => api('PUT', '/api/admin/website/whatsapp', v), { ok: 'Saved', reload: false }) });
-  page('WhatsApp Settings',
-    h('section', { class: 'card' }, f.form),
+  page('Download Page & WhatsApp',
+    h('section', { class: 'card' }, h('h2', { text: 'Download page' }), featured.form),
+    h('section', { class: 'card' }, h('h2', { text: 'WhatsApp' }), f.form),
     h('section', { class: 'card' }, h('h2', { text: 'Verification codes (OTP)' }),
       h('p', { class: 'hint', text: 'Customer verification codes are sent through the WhatsApp Business Cloud API configured on the server (WHATSAPP_* environment variables). Invitations are sent by you with the “Send via WhatsApp” button after generating a link.' })));
 }

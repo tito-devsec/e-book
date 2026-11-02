@@ -1,5 +1,6 @@
-// DEVELOPMENT ONLY. Creates an owner account, a sample book with the bundled cover and a
-// generated sample EPUB, and starter website content. Refuses to run in production.
+// DEVELOPMENT ONLY. Creates an owner account and a sample book with the bundled cover and a
+// generated sample EPUB. Options: --book <file.pdf|file.epub> to load your own book file,
+// --demo to add sample customers and sales. Refuses to run in production.
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -59,19 +60,21 @@ try {
     const edition = await ctx.ingest.ingestEdition({ bookId: book.id, buffer: await sampleEpub(), label: 'Development sample', adminId: null });
     await pool.query('UPDATE books SET cover_storage_key=$2, cover_mime=$3, current_edition_id=$4, published=true WHERE id=$1', [book.id, key, 'image/png', edition.id]);
   }
-  const set = (k, v) => pool.query('UPDATE website_settings SET value=$2 WHERE key=$1', [k, v]);
-  await set('site', { siteName: 'Kenedy Njume', tagline: '', featuredBookId: book.id, seoDescription: 'How to handle customer objections and close more deals.' });
-  await set('hero', { headline: '20 Objections That Cost You Sales', subheadline: 'Practical responses to the objections you hear every week, so more conversations end in a sale.' });
-  await set('learn', { heading: 'What you will learn', items: [
-    { title: 'Why buyers object', text: 'Recognise what an objection is really asking for.' },
-    { title: 'Price and budget', text: 'Answer “it is too expensive” without discounting.' },
-    { title: 'Timing and trust', text: 'Move stalled deals forward with confidence.' }] });
-  await set('author', { heading: 'About the author', name: 'Kenedy Njume', bio: 'Development sample biography. Edit this in the dashboard under Marketing Website Content.' });
-  await set('faq', { heading: 'Frequently asked questions', items: [
-    { question: 'How do I receive the book?', answer: 'After your payment is verified you receive a private link on WhatsApp. Open it, confirm your number, and read in the private reader.' },
-    { question: 'Can I read on my phone?', answer: 'Yes. You can install the reader on your phone or computer.' }] });
-  await set('whatsapp', { number: process.env.SEED_WHATSAPP || '+254700000000', orderMessage: 'Hello, I would like to order {book_title}.',
-    invitationTemplate: (await pool.query(`SELECT value FROM website_settings WHERE key='whatsapp'`)).rows[0].value.invitationTemplate });
+  await pool.query(`UPDATE website_settings SET value=$1 WHERE key='site'`, [{ featuredBookId: book.id }]);
+  const { rows: [wa] } = await pool.query(`SELECT value FROM website_settings WHERE key='whatsapp'`);
+  await pool.query(`UPDATE website_settings SET value=$1 WHERE key='whatsapp'`,
+    [{ ...wa.value, number: wa.value.number || process.env.SEED_WHATSAPP || '+254700000000', orderMessage: 'Hello, I would like to order {book_title}.' }]);
+
+  // --book <file>: use your own EPUB or PDF as the sample book's current edition.
+  const bi = process.argv.indexOf('--book');
+  if (bi > 0 && process.argv[bi + 1]) {
+    const file = path.resolve(process.argv[bi + 1]);
+    const buffer = await fs.readFile(file);
+    console.log(`Processing ${path.basename(file)}…`);
+    const edition = await ctx.ingest.ingestEdition({ bookId: book.id, buffer, label: path.basename(file), adminId: null });
+    await pool.query('UPDATE books SET current_edition_id=$2, preferred_format=$3 WHERE id=$1', [book.id, edition.id, edition.format]);
+    console.log(`Book file loaded: ${edition.format}, ${edition.page_count} ${edition.format === 'PDF' ? 'pages' : 'chapters'} (encrypted in private storage).`);
+  }
   if (process.argv.includes('--demo')) {
     // Sample sales history so the dashboard charts have something to show. Development only.
     const names = ['Amina Wanjiru', 'Brian Otieno', 'Grace Achieng', 'Kevin Mwangi', 'Faith Njeri', 'Dennis Kiprop', 'Mercy Atieno', 'John Kamau',

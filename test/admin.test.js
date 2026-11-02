@@ -159,7 +159,7 @@ test('original source file is encrypted at rest and never reachable by URL', asy
   assert.ok(img.data.equals(PNG_1PX));
 });
 
-test('PDF editions are rendered to page images', async () => {
+test('PDF editions: rendered server-side, never sent as PDF, watermarked per buyer, searchable', async () => {
   const created = await owner.post('/api/admin/books', { title: 'PDF Book', author: 'A', priceAmount: '10', currency: 'KES', preferredFormat: 'PDF' });
   const id = created.data.book.id;
   const fd = new FormData(); fd.append('file', new Blob([makePdf(3)]), 'b.pdf');
@@ -167,14 +167,51 @@ test('PDF editions are rendered to page images', async () => {
   assert.equal(up.status, 201, JSON.stringify(up.data));
   assert.equal(up.data.edition.format, 'PDF');
   assert.equal(up.data.edition.pageCount, 3);
-  const o = await createOrder(owner, id);
-  const inv = await invite(owner, o.licenseId);
-  const reader = new Browser(env.base);
-  await activate(env, reader, inv.token, o.phone);
-  const m = await reader.get(`/api/reader/books/${id}/manifest`, { sign: true });
+  // Stored original is ciphertext.
+  const { rows: [e] } = await env.ctx.pool.query('SELECT * FROM book_editions WHERE id=$1', [up.data.edition.id]);
+  const stored = await fs.readFile(path.join(process.env.STORAGE_LOCAL_DIR, e.original_storage_key));
+  assert.ok(!stored.includes(Buffer.from('%PDF')), 'original PDF is encrypted at rest');
+
+  const readers = [];
+  for (const name of ['Alice Reader', 'Bob Reader']) {
+    const o = await createOrder(owner, id);
+    await env.ctx.pool.query('UPDATE customers SET full_name=$2 WHERE id=$1', [o.customerId, name]);
+    const inv = await invite(owner, o.licenseId);
+    const b = new Browser(env.base);
+    await activate(env, b, inv.token, o.phone);
+    readers.push(b);
+  }
+  const m = await readers[0].get(`/api/reader/books/${id}/manifest`, { sign: true });
   assert.equal(m.data.format, 'PDF');
-  const page = await reader.get(`/api/reader/books/${id}/content/${m.data.items[1].id}`, { sign: true });
-  assert.equal(page.headers.get('content-type'), 'image/png');
+  assert.equal(m.data.items.length, 3);
+  const pageA = await readers[0].get(`/api/reader/books/${id}/content/${m.data.items[1].id}`, { sign: true });
+  const pageB = await readers[1].get(`/api/reader/books/${id}/content/${m.data.items[1].id}`, { sign: true });
+  assert.equal(pageA.headers.get('content-type'), 'image/webp');
+  assert.equal(pageA.data.subarray(8, 12).toString(), 'WEBP');
+  assert.ok(!pageA.data.includes(Buffer.from('%PDF')));
+  assert.ok(!pageA.data.equals(pageB.data), 'each buyer gets a differently watermarked page');
+  const { rows: [clean] } = await env.ctx.pool.query(`SELECT * FROM book_assets WHERE id=$1`, [m.data.items[1].id]);
+  assert.ok(!pageA.data.equals(await env.ctx.ingest.readAsset(e, clean)), 'delivered page is not the stored clean page');
+  // Page text is used only for search and is never served whole.
+  const { rows: [txt] } = await env.ctx.pool.query(`SELECT id FROM book_assets WHERE edition_id=$1 AND kind='PAGE_TEXT' LIMIT 1`, [e.id]);
+  assert.equal((await readers[0].get(`/api/reader/books/${id}/content/${txt.id}`, { sign: true })).status, 404);
+  const search = await readers[0].get(`/api/reader/books/${id}/search?q=Page%202`, { sign: true });
+  assert.equal(search.data.supported, true);
+  assert.equal(search.data.results[0].index, 1);
+  // The admin can trace a page back to its buyer by the watermark reference.
+  const { traceCode } = await import('../src/services/watermark.js');
+  const lic = (await env.ctx.pool.query(`SELECT l.id FROM reading_licenses l JOIN customers c ON c.id=l.customer_id WHERE c.full_name='Alice Reader'`)).rows[0];
+  const traced = await owner.get(`/api/admin/licenses?ref=${traceCode(process.env.HASH_PEPPER, lic.id)}`);
+  assert.equal(traced.data.licenses.length, 1);
+  assert.equal(traced.data.licenses[0].full_name, 'Alice Reader');
+});
+
+test('password-protected or broken PDFs are rejected', async () => {
+  const created = await owner.post('/api/admin/books', { title: 'Broken', author: 'A', priceAmount: '10', currency: 'KES' });
+  const fd = new FormData(); fd.append('file', new Blob([Buffer.from('%PDF-1.4\nnot really a pdf')]), 'x.pdf');
+  const up = await owner.post(`/api/admin/books/${created.data.book.id}/upload`, fd);
+  assert.equal(up.status, 400);
+  assert.equal(up.data.code, 'INVALID_PDF');
 });
 
 test('reader: chapter navigation, progress and bookmarks', async () => {
@@ -264,23 +301,25 @@ test('overview metrics come from the database', async () => {
   assert.ok(Array.isArray(r.data.recentActivity));
 });
 
-test('admin can update marketing content; site renders it escaped with a WhatsApp CTA', async () => {
+test('download page settings: featured book and WhatsApp order link; no marketing website', async () => {
   assert.equal((await owner.request('PUT', '/api/admin/website/whatsapp', {
     number: '+254700111222', orderMessage: 'Hi, I want {book_title}', invitationTemplate: 'Hi {customer_name} {invitation_link}',
   })).status, 200);
-  assert.equal((await owner.request('PUT', '/api/admin/website/hero', { headline: 'Close more <b>deals</b>', subheadline: 'Practical scripts' })).status, 200);
-  assert.equal((await owner.request('PUT', '/api/admin/website/faq', { heading: 'FAQ', items: [{ question: 'Is it a PDF?', answer: 'No, a private reader.' }] })).status, 200);
-  assert.equal((await owner.post('/api/admin/testimonials', { authorName: 'Ann', quote: 'Great <script>x</script>', rating: 5 })).status, 201);
+  assert.equal((await owner.request('PUT', '/api/admin/website/site', { featuredBookId: bookId })).status, 200);
   const bad = await owner.request('PUT', '/api/admin/website/whatsapp', { number: '+254700111222', invitationTemplate: 'no link' });
   assert.equal(bad.status, 400);
-  const page = await new Browser(env.base).get('/');
-  const html = page.data.toString();
-  assert.match(html, /Close more &lt;b&gt;deals&lt;\/b&gt;/);
-  assert.match(html, /https:\/\/wa\.me\/254700111222\?text=Hi%2C%20I%20want%20Test%20Book/);
-  assert.match(html, /Great &lt;script&gt;/);
-  assert.doesNotMatch(html, /\/access\/|\/api\/reader|storage_key/);
-  const cover = await new Browser(env.base).get(`/media/covers/${bookId}`);
-  assert.equal(cover.status, 200);
+  assert.equal((await owner.request('PUT', '/api/admin/website/hero', { headline: 'x' })).status, 404, 'website sections are gone');
+  assert.equal((await owner.post('/api/admin/testimonials', { authorName: 'A', quote: 'q' })).status, 404, 'testimonials are gone');
+  const anon = new Browser(env.base);
+  const info = await anon.get('/api/public/book');
+  assert.equal(info.data.book.id, bookId);
+  assert.match(info.data.orderUrl, /^https:\/\/wa\.me\/254700111222\?text=Hi%2C%20I%20want%20Test%20Book$/);
+  assert.ok(!JSON.stringify(info.data).match(/storage_key|edition|phone_e164/));
+  const home = await anon.get('/');
+  assert.equal(home.status, 200);
+  assert.match(home.data.toString(), /static\/reader\/app\.js/, 'home is the download page app');
+  assert.doesNotMatch(home.data.toString(), /Order on WhatsApp|static\/site/);
+  assert.equal((await anon.get(`/media/covers/${bookId}`)).status, 200);
 });
 
 test('license suspend, reactivate and renew', async () => {

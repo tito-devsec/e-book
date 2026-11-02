@@ -19,7 +19,7 @@ This is the book owner's guide to the management dashboard (`https://admin.examp
      encrypted and prepared for reading. When it shows **READY**, customers can read it.
    - *Devices per purchase* (default 1) and *License duration* (empty = never expires) apply
      to new purchases.
-3. Click **Publish** to show the book on the website.
+3. Click **Publish** so the book appears on the download page.
 
 **EPUB or PDF?** EPUB gives the best reading experience: text resizes, search works, dark mode
 looks right. PDF pages are shown as images: the layout stays exactly as designed, but text
@@ -29,16 +29,23 @@ cannot be resized or searched.
 their access and see the new edition. You can switch back to an older edition under
 **Editions** → *Make current*.
 
-## Website and WhatsApp
+## Download page and WhatsApp
 
-- **Marketing Website Content**: edit every section of the sales page: hero, about, what readers
-  will learn, author, benefits, FAQ, final call to action, footer, and testimonials. Sections
-  left empty are hidden.
-- **WhatsApp Settings**:
-  - *Business WhatsApp number*: where the "Order on WhatsApp" buttons go.
-  - *Prefilled order message*: what the customer's message starts with.
-  - *Invitation message*: the text you send with each private link. It must contain
-    `{invitation_link}`.
+**Download Page & WhatsApp** in the dashboard:
+
+- *Book shown on the download page*: the book visitors see at the customer site's home page.
+- *Business WhatsApp number* and *Prefilled order message*: used by the "Buy this book on
+  WhatsApp" button that visitors without access see.
+- *Invitation message*: the text you send with each private link. It must contain
+  `{invitation_link}`.
+
+## How PDF books are protected
+
+- The uploaded PDF is encrypted and never sent to any browser, not even the buyer's.
+- Each page is shown as an image stamped with the buyer's name, part of their number and a
+  **watermark ref** (for example `FAAB80E5`).
+- If you find a leaked photo or screenshot of a page, open **Reading Licenses** and enter the
+  ref printed on it: the buyer it belongs to is shown. You can then suspend or revoke them.
 
 ## Selling: from order to reader
 
@@ -62,7 +69,7 @@ The customer opens the link, confirms their number with a code, and starts readi
 |---|---|
 | Link expired or lost | Order page → *Generate new access link*, or **Access Invitations** → *Reissue*. The old link stops working. |
 | Customer typed the wrong number when ordering | Customer page → change the WhatsApp number (pending invitations are cancelled), then generate a new link |
-| Customer already activated and asks for the link again | They don't need it: they open the reader app or `reader.example.com` and sign in with their number |
+| Customer already activated and asks for the link again | They don't need it: they open the reader app or the customer site and sign in with their number |
 | Customer has a new phone | They sign in on the new phone; they can move access themselves up to the monthly limit. Otherwise approve it under **Registered Devices** |
 | Customer wants two devices | **Reading Licenses** → *Devices allowed* → 2 |
 | Refund | **Reading Licenses** → *Revoke* (or customer page → *Revoke all access*) |

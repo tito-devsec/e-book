@@ -20,7 +20,7 @@ Only the latest release on `main` receives security fixes.
 | Customer auth | WhatsApp OTP to the stored number only, 6 digits, expiry, attempt limit, hourly cap, resend cooldown |
 | Invitations | 256-bit random tokens, stored as keyed hashes, single use, expiring, revocable, reissue invalidates the old link |
 | Devices | Non-extractable ECDSA P-256 key per browser; every reader request signed (method, URL, timestamp, nonce, body hash); replay protection |
-| Content | Originals encrypted at rest (AES-256-GCM, per-edition data key wrapped by KMS); served one sanitized chapter or page at a time after session, device and license checks; `no-store` |
+| Content | Originals encrypted at rest (AES-256-GCM, per-edition data key wrapped by KMS); PDFs rendered to images server-side and never sent as PDF; each PDF page watermarked per buyer with a traceable ref; served one sanitized chapter or page at a time after session, device and license checks; `no-store` |
 | Web | Strict CSP (no inline script), `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, `nosniff`, SameSite=Strict HttpOnly cookies, CSRF tokens, origin checks, JSON-only state changes |
 | Input | Schema validation, parameterized SQL, HTML sanitization of book content, magic-byte file validation, upload size limits, optional ClamAV scanning, zip-bomb limits |
 | Abuse | Per-IP rate limits, per-customer OTP limits, per-session content rate limit with alerts |

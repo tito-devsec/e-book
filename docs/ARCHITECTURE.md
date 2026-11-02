@@ -4,9 +4,9 @@
 
 ```
                  ┌──────────────── one Node.js service (Express 5) ────────────────┐
- example.com ───▶│ site routes      server-rendered marketing page, public covers   │
  admin.*     ───▶│ /admin SPA       + /api/admin/*   (admin session, RBAC, CSRF)    │
- reader.*    ───▶│ reader PWA shell + /api/access/*, /api/auth/*  (OTP, activation) │
+ books.*     ───▶│ download page + reader PWA, /api/public/book, /api/access/*,     │
+                 │                    /api/auth/*  (OTP, activation), public covers │
                  │                  + /api/reader/*  (session + device signature)   │
                  └───────┬───────────────────────┬────────────────────┬────────────┘
                          │                       │                    │
@@ -92,11 +92,18 @@ short-lived `pending_device_grants` row and asks the customer to move access:
 3. The original is encrypted with AES-256-GCM (AAD = edition id) into private storage.
 4. EPUB: spine chapters are sanitized (allow-list of tags/attributes, scripts, handlers, iframes,
    forms, styles and non-https links removed; internal links and images rewritten to opaque asset
-   ids) and each chapter/image is encrypted separately. PDF: pages are rendered to PNG by
-   `pdftoppm` and encrypted separately.
+   ids) and each chapter/image is encrypted separately. PDF: pdf.js renders every page to a PNG
+   **in memory** (the original is never written to disk unencrypted; eval, scripting and XFA are
+   disabled), extracts each page's text for server-side search, reads the PDF outline for the
+   table of contents, and encrypts each page image and text separately.
 5. `GET /api/reader/books/:id/content/:resourceId` checks session → device → signature → nonce →
    rate limit → license (customer + book + device authorization + paid order + not expired) and
    returns one decrypted chapter or page with `Cache-Control: no-store` and a sandbox CSP.
+   PDF pages are watermarked **per request** (`src/services/watermark.js`): a diagonal pattern and
+   a footer with the buyer's name, masked number, date and a trace code (HMAC of the license id),
+   burned into the pixels and re-encoded as WebP. Two buyers never receive the same bytes, and the
+   owner can look up the buyer from the trace code. Page text is never served, only searched.
+   The reader decodes pages into `ImageBitmap`s drawn on `<canvas>` (no image URL to save).
 6. The reader keeps at most a few chapters in memory, never in Cache Storage, localStorage or
    IndexedDB.
 

@@ -3,22 +3,21 @@
 Sell a digital book, verify payments by hand, and give each paying customer private reading
 access in an installable web app, without ever handing out a PDF or EPUB file.
 
-The platform has four parts in one Node.js service:
+The platform has three parts in one Node.js service:
 
 | Part | Default path | Purpose |
 |---|---|---|
-| Marketing website | `/` | Sales page with WhatsApp ordering, edited from the dashboard |
 | Download page | `/` on the reader host | Single-screen book page: DOWNLOAD BOOK installs the reader, START READING opens the book |
 | Management dashboard | `/admin` | Books, customers, orders, payment verification, invitations, devices, licenses, monitoring |
 | Reader PWA | `/app`, `/access/<token>`, `/read/<id>` | Invitation activation, OTP sign-in, installable reader with page-flip |
 | API | `/api/...` | Authenticated, validated JSON API ([docs/API.md](docs/API.md)) |
 
-Each part can run on its own domain (`example.com`, `admin.example.com`, `reader.example.com`)
-or together on one domain.
+The customer site and the dashboard run on separate domains in production
+(`books.example.com`, `admin.example.com`) and on separate ports in development (3000, 3002).
 
 ## How it works
 
-1. A customer finds the book on the website and orders on WhatsApp.
+1. A customer orders on WhatsApp (the download page has a "Buy this book on WhatsApp" button).
 2. The customer pays (for example M-PESA or a bank transfer).
 3. The owner registers the order in the dashboard and verifies the payment reference.
 4. The owner clicks **Generate Access Link** and sends the private link on WhatsApp.
@@ -26,6 +25,9 @@ or together on one domain.
 6. The invitation is consumed, this browser is registered, and the book page opens.
 7. **DOWNLOAD BOOK** installs the reader app; **START READING** opens the book (offering installation first).
 8. The installed app opens straight to the book. The original file never leaves private storage.
+
+PDF books are rendered to page images on the server; each page a buyer opens is stamped with
+their name, masked phone number and a trace code, so a leaked screenshot shows whose copy it was.
 
 Sharing the invitation or a reader URL does not give anyone else access: activation needs a code
 sent to the buyer's own number, and every content request must come from a registered device with
@@ -36,7 +38,6 @@ browser-based protection can and cannot do.
 
 - Node.js 22.9 or newer
 - PostgreSQL 14 or newer
-- `pdftoppm` (poppler-utils) for PDF editions
 - For production: HTTPS reverse proxy, WhatsApp Business Cloud API, AWS KMS + S3 (or the local alternatives), optionally ClamAV
 
 ## Quick start (development)
@@ -61,12 +62,12 @@ Each application runs on its own port:
 | Port | Application |
 |---|---|
 | http://localhost:3000 | Customer site: the book download page, invitations, reader |
-| http://localhost:3001 | Sales website with the WhatsApp order button |
 | http://localhost:3002/admin | Management dashboard |
 
 Add `-- --demo` to the seed command (`npm run seed:dev -- --demo`) to fill the dashboard with
 sample customers and sales.
-PDF uploads need `pdftoppm` (poppler) on the PATH; EPUB works without it.
+To load your own book file during development: `npm run seed:dev -- --book "C:\path\to\book.pdf"`
+(or upload it in the dashboard under Books).
 
 ## Production
 
@@ -117,7 +118,6 @@ revocation, content protection, admin RBAC/CSRF/MFA, audit logging and separate-
 ```
 src/            server: config, app, middleware, routes, services
 migrations/     SQL migrations (applied in order, once)
-public/site     marketing page template and styles
 public/admin    dashboard SPA
 public/reader   reader PWA, manifest, service worker
 public/shared   shared design tokens

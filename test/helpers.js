@@ -21,7 +21,7 @@ export async function setupEnv() {
     LOG_LEVEL: 'error',
     COOKIE_SECURE: 'false',
     TRUST_PROXY: 'false',
-    PUBLIC_BASE_URL: 'http://127.0.0.1',
+    READER_BASE_URL: 'http://127.0.0.1',
     DEFAULT_COUNTRY_CODE: '254',
   });
   return { storageDir };
@@ -39,7 +39,7 @@ export async function startServer() {
   const app = createApp(ctx);
   const server = await new Promise((resolve) => { const s = app.listen(0, '127.0.0.1', () => resolve(s)); });
   const base = `http://127.0.0.1:${server.address().port}`;
-  cfg.publicBaseUrl = base;
+  cfg.readerBaseUrl = base;
   return {
     ctx, base, cfg,
     async close() {
@@ -143,7 +143,7 @@ export function makePdf(pages = 2) {
     const pageNum = objs.length + 1;
     const contentNum = pageNum + 1;
     kids.push(`${pageNum} 0 R`);
-    const stream = `BT /F1 24 Tf 72 700 Td (Page ${i + 1}) Tj ET`;
+    const stream = `BT /F1 24 Tf 40 300 Td (Page ${i + 1}) Tj ET`;
     objs.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 400] /Contents ${contentNum} 0 R /Resources << /Font << /F1 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> >> >> >>`);
     objs.push(`<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`);
   }

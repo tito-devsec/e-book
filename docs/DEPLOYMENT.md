@@ -8,7 +8,7 @@ AWS KMS and S3 for keys and storage. Alternatives are noted where they differ.
 | Item | Notes |
 |---|---|
 | Server | 2 vCPU, 2–4 GB RAM is enough to start. Docker + Docker Compose. |
-| Domains | `example.com`, `admin.example.com`, `reader.example.com` pointing (A/AAAA) to the server |
+| Domains | `books.example.com` (customer site) and `admin.example.com` pointing (A/AAAA) to the server |
 | AWS | One KMS symmetric key and one private S3 bucket (or use `KMS_PROVIDER=local` / `STORAGE_DRIVER=local`) |
 | WhatsApp | A Meta WhatsApp Business account with the Cloud API, a phone number id, a permanent access token, and an approved **Authentication** message template |
 
@@ -70,7 +70,7 @@ NODE_ENV=production npm start       # run under systemd or a process manager
 `/etc/caddy/Caddyfile`:
 
 ```
-example.com, admin.example.com, reader.example.com {
+books.example.com, admin.example.com {
     encode gzip
     request_body {
         max_size 110MB
@@ -90,15 +90,15 @@ Keep `TRUST_PROXY=1` (one proxy hop).
 ## 7. Verify
 
 ```bash
-curl -fsS https://example.com/readyz
-curl -sI https://reader.example.com/app | grep -i content-security-policy
+curl -fsS https://books.example.com/readyz
+curl -sI https://books.example.com/app | grep -i content-security-policy
 ```
 
 Then in the dashboard (`https://admin.example.com`):
 
 1. Sign in and set up two-factor authentication (My Account).
 2. Books → create the book, upload the cover and the EPUB/PDF, publish.
-3. Marketing Website Content and WhatsApp Settings → fill in the site and your business number.
+3. Download Page & WhatsApp → choose the book and enter your business number.
 4. Register a test order with your own number, verify it, generate an access link, open it on your
    phone and complete activation.
 
@@ -122,5 +122,5 @@ Migrations are forward-only and additive; take a database backup before each upd
 
 ## Single-domain mode
 
-Leave `ADMIN_BASE_URL` and `READER_BASE_URL` empty (or equal to `PUBLIC_BASE_URL`). The dashboard
+Leave `ADMIN_BASE_URL` empty (or equal to `READER_BASE_URL`). The dashboard
 is at `/admin` and the reader at `/app` on the same domain.

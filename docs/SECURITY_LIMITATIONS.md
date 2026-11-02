@@ -17,6 +17,23 @@ more than is true.
 | Access can be withdrawn | Revocation, suspension and device removal take effect on the next request | Strong for future reading; see below for what was already seen |
 | One purchase, one device | Device limit per license, controlled device moves, alerts | Moderate (see "Device identity") |
 
+## PDF books: layers of protection
+
+| Layer | What it does | What it stops |
+|---|---|---|
+| Encrypted original | The PDF is encrypted (AES-256-GCM, per-edition key wrapped by KMS) the moment it is uploaded and is never written to disk in clear | Theft of the server's files or bucket |
+| Server-side rendering | pdf.js turns each page into an image on the server; no PDF bytes ever reach a browser | "Save as PDF", PDF downloaders, extracting the file from the app |
+| One page per request | Each page is requested separately with a signed, session-bound, rate-limited request | Bulk download scripts, replaying requests, shared links |
+| Burned-in watermark | Every page image is stamped, per request, with the buyer's name, masked number, date and a trace ref | Anonymous leaks: any screenshot, photo or printout identifies the buyer; the dashboard finds them by ref |
+| Canvas display | Pages are drawn on a `<canvas>` from in-memory bitmaps, never as an `<img>` or file URL | Right-click "save image", drag-and-drop, browser image cache |
+| No storage | Pages are never put in the service-worker cache, localStorage or IndexedDB | Copies left on the device after access is revoked |
+| Privacy shield | The page blurs when the reader loses focus or is hidden; print/save shortcuts are blocked; print stylesheet blanks the page | App-switcher thumbnails, casual desktop snipping tools, Ctrl+P / Ctrl+S |
+| Page text kept server-side | The text of PDF pages is used only for search and returns short snippets | Copying the whole text through the search feature |
+
+What still cannot be prevented for PDFs: a phone camera pointed at the screen, the operating
+system's own screenshot on phones (Android/iOS do not let web pages block it), and screen recording
+software that does not take focus. The watermark is what makes these leaks traceable.
+
 ## What is not protected
 
 **Screenshots, screen recording and photos.** Any page shown on screen can be captured. The

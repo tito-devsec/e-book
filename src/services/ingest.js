@@ -4,11 +4,8 @@
 // The reader never receives the original file. It receives one sanitized chapter (EPUB) or
 // one rendered page image (PDF) per authorized request.
 import crypto from 'node:crypto';
-import fs from 'node:fs/promises';
-import os from 'node:os';
 import path from 'node:path';
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
+import { createRequire } from 'node:module';
 import JSZip from 'jszip';
 import sanitizeHtml from 'sanitize-html';
 import { parseDocument } from 'htmlparser2';
@@ -16,7 +13,6 @@ import * as du from 'domutils';
 import { aesGcmEncrypt, aesGcmDecrypt, sha256Hex } from '../lib/crypto.js';
 import { badRequest } from '../lib/http.js';
 
-const execFileP = promisify(execFile);
 
 // ---------------------------------------------------------------------------
 // File type detection by content (magic bytes), never by extension or client MIME.
@@ -219,27 +215,77 @@ export async function parseEpub(buf) {
 }
 
 // ---------------------------------------------------------------------------
-// PDF rendering with poppler's pdftoppm into per-page PNG images.
+// PDF rendering with pdf.js (in memory: the original is never written to disk unencrypted).
+// Each page becomes a PNG image plus its plain text (for server-side search). Scripts, forms
+// and XFA in the PDF are never executed: pdf.js runs with eval and scripting disabled and only
+// draws the page.
 // ---------------------------------------------------------------------------
-export async function renderPdf(buf, cfg) {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'pdf-'));
+const require = createRequire(import.meta.url);
+let pdfjsPromise = null;
+function loadPdfjs() {
+  pdfjsPromise ??= import('pdfjs-dist/legacy/build/pdf.mjs');
+  return pdfjsPromise;
+}
+const pdfjsDir = () => path.dirname(require.resolve('pdfjs-dist/package.json'));
+
+export async function renderPdfPages(buf, cfg, onPage) {
+  const pdfjs = await loadPdfjs();
+  const base = pdfjsDir();
+  let doc; let task;
   try {
-    const input = path.join(dir, 'in.pdf');
-    await fs.writeFile(input, buf, { mode: 0o600 });
-    await execFileP(cfg.pdftoppmPath, ['-png', '-r', String(cfg.pdfRenderDpi), input, path.join(dir, 'p')], {
-      timeout: 10 * 60 * 1000, maxBuffer: 10 * 1024 * 1024,
+    task = pdfjs.getDocument({
+      data: new Uint8Array(buf),
+      standardFontDataUrl: `${path.join(base, 'standard_fonts')}${path.sep}`,
+      cMapUrl: `${path.join(base, 'cmaps')}${path.sep}`,
+      cMapPacked: true,
+      isEvalSupported: false,
+      enableXfa: false,
+      disableFontFace: true,
+      verbosity: Number(process.env.PDFJS_VERBOSITY || 0),
     });
-    const files = (await fs.readdir(dir)).filter((f) => /^p-\d+\.png$/.test(f))
-      .sort((a, b) => Number(a.match(/\d+/)[0]) - Number(b.match(/\d+/)[0]));
-    if (files.length === 0) throw badRequest('The PDF has no pages', 'INVALID_PDF');
-    const pages = [];
-    for (const f of files) pages.push(await fs.readFile(path.join(dir, f)));
-    return pages;
+    doc = await task.promise;
+  } catch (err) {
+    task?.destroy();
+    if (err?.name === 'PasswordException') throw badRequest('The PDF is password-protected. Upload a version without a password.', 'INVALID_PDF');
+    throw badRequest('The PDF could not be opened', 'INVALID_PDF');
+  }
+  try {
+    if (doc.numPages < 1) throw badRequest('The PDF has no pages', 'INVALID_PDF');
+    if (doc.numPages > cfg.pdfMaxPages) throw badRequest(`The PDF has more than ${cfg.pdfMaxPages} pages`, 'INVALID_PDF');
+    for (let n = 1; n <= doc.numPages; n += 1) {
+      const page = await doc.getPage(n);
+      const vp = page.getViewport({ scale: cfg.pdfRenderScale });
+      const { canvas, context } = doc.canvasFactory.create(Math.ceil(vp.width), Math.ceil(vp.height));
+      context.fillStyle = '#ffffff';
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      await page.render({ canvasContext: context, viewport: vp, canvas }).promise;
+      const png = canvas.toBuffer('image/png');
+      const text = (await page.getTextContent()).items.map((i) => i.str || '').join(' ').replace(/\s+/g, ' ').trim();
+      doc.canvasFactory.destroy({ canvas, context });
+      page.cleanup();
+      await onPage({ index: n - 1, png, text });
+    }
+    // Table of contents from the PDF outline (bookmarks), when the PDF has one.
+    const toc = [];
+    const walk = async (items, level) => {
+      for (const it of items || []) {
+        try {
+          const dest = typeof it.dest === 'string' ? await doc.getDestination(it.dest) : it.dest;
+          if (Array.isArray(dest) && dest[0]) {
+            const index = typeof dest[0] === 'number' ? dest[0] : await doc.getPageIndex(dest[0]);
+            toc.push({ label: String(it.title || '').trim().slice(0, 200) || `Page ${index + 1}`, chapter: index, anchor: '', level });
+          }
+        } catch { /* ignore unresolvable outline entries */ }
+        if (level < 3) await walk(it.items, level + 1);
+      }
+    };
+    await walk(await doc.getOutline(), 0);
+    return { pageCount: doc.numPages, toc };
   } catch (err) {
     if (err.status) throw err;
     throw badRequest('The PDF could not be processed', 'INVALID_PDF');
   } finally {
-    await fs.rm(dir, { recursive: true, force: true });
+    await task.destroy();
   }
 }
 
@@ -303,14 +349,21 @@ export function createIngest({ pool, cfg, kms, storage, scanner, logger }) {
         }
         toc = book.toc;
       } else {
-        const pages = await renderPdf(buffer, cfg);
-        for (let i = 0; i < pages.length; i += 1) {
+        const result = await renderPdfPages(buffer, cfg, async ({ index, png, text }) => {
           const id = crypto.randomUUID();
           const key = `books/${bookId}/${editionId}/a/${id}.bin`;
-          await putEncrypted(key, dataKey, pages[i], `${editionId}:${id}`);
-          assets.push([id, 'PAGE_IMAGE', i, `Page ${i + 1}`, '', 'image/png', key, pages[i].length]);
-        }
-        toc = pages.map((_, i) => ({ label: `Page ${i + 1}`, chapter: i, anchor: '', level: 0 })).filter((_, i) => i % 10 === 0);
+          await putEncrypted(key, dataKey, png, `${editionId}:${id}`);
+          assets.push([id, 'PAGE_IMAGE', index, `Page ${index + 1}`, '', 'image/png', key, png.length]);
+          if (text) {
+            const tid = crypto.randomUUID();
+            const tkey = `books/${bookId}/${editionId}/a/${tid}.bin`;
+            const body = Buffer.from(text, 'utf8');
+            await putEncrypted(tkey, dataKey, body, `${editionId}:${tid}`);
+            assets.push([tid, 'PAGE_TEXT', index, `Page ${index + 1}`, '', 'text/plain', tkey, body.length]);
+          }
+        });
+        toc = result.toc.length ? result.toc
+          : Array.from({ length: result.pageCount }, (_, i) => ({ label: `Page ${i + 1}`, chapter: i, anchor: '', level: 0 })).filter((_, i) => i % 10 === 0);
       }
       const client = await pool.connect();
       try {
@@ -320,7 +373,7 @@ export function createIngest({ pool, cfg, kms, storage, scanner, logger }) {
             `INSERT INTO book_assets (id, edition_id, kind, ordinal, title, source_path, mime, storage_key, size)
              VALUES ($1,$9,$2,$3,$4,$5,$6,$7,$8)`, [...a, editionId]);
         }
-        const count = assets.filter((a) => a[1] !== 'IMAGE').length;
+        const count = assets.filter((a) => a[1] === 'CHAPTER' || a[1] === 'PAGE_IMAGE').length;
         await client.query(`UPDATE book_editions SET status='READY', toc=$2, page_count=$3 WHERE id=$1`,
           [editionId, JSON.stringify(toc), count]);
         await client.query('COMMIT');

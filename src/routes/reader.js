@@ -2,8 +2,9 @@
 // active license for the requested book on this device. Responses are never cacheable.
 import express from 'express';
 import { validate, notFound, uuidParam } from '../lib/http.js';
+import { watermarkPage, traceCode, maskedPhone } from '../services/watermark.js';
 
-export function readerRoutes({ pool, access, ingest, events, readerAuth, storage }) {
+export function readerRoutes({ pool, access, ingest, events, readerAuth, storage, cfg }) {
   const r = express.Router();
   r.use((req, res, next) => { res.set('Cache-Control', 'no-store, private'); res.set('Pragma', 'no-cache'); next(); });
   r.use(readerAuth.sessionOnly(), readerAuth.signed());
@@ -69,16 +70,23 @@ export function readerRoutes({ pool, access, ingest, events, readerAuth, storage
   r.get('/books/:bookId/content/:resourceId', async (req, res) => {
     const bookId = uuidParam(req.params.bookId);
     const resourceId = uuidParam(req.params.resourceId);
-    await access.requireBookAccess(req.reader, bookId, req.ip);
+    const lic = await access.requireBookAccess(req.reader, bookId, req.ip);
     const e = await currentEdition(bookId);
     if (!e) throw notFound();
-    const { rows: [asset] } = await pool.query('SELECT * FROM book_assets WHERE id=$1 AND edition_id=$2', [resourceId, e.id]);
+    // Extracted page text is only used by server-side search; it is never handed out whole.
+    const { rows: [asset] } = await pool.query(`SELECT * FROM book_assets WHERE id=$1 AND edition_id=$2 AND kind <> 'PAGE_TEXT'`, [resourceId, e.id]);
     if (!asset) throw notFound();
-    const body = await ingest.readAsset(e, asset);
+    let body = await ingest.readAsset(e, asset);
+    let mime = asset.mime === 'text/html' ? 'text/html; charset=utf-8' : asset.mime;
+    if (asset.kind === 'PAGE_IMAGE') {
+      // Burn the buyer's identity into the page pixels for this request.
+      body = await watermarkPage(body, { name: req.reader.full_name, phone: maskedPhone(req.reader.phone_e164), code: traceCode(cfg.hashPepper, lic.id) });
+      mime = 'image/webp';
+    }
     if (asset.kind !== 'IMAGE') {
       await events.reading(null, { type: 'CHAPTER_ACCESSED', customerId: req.reader.customer_id, bookId, deviceId: req.reader.device_id, details: { index: asset.ordinal } });
     }
-    res.set('Content-Type', asset.mime === 'text/html' ? 'text/html; charset=utf-8' : asset.mime);
+    res.set('Content-Type', mime);
     res.set('Content-Disposition', 'inline');
     res.set('Content-Security-Policy', "default-src 'none'; sandbox");
     res.send(body);
@@ -92,8 +100,9 @@ export function readerRoutes({ pool, access, ingest, events, readerAuth, storage
     if (q.length < 2 || q.length > 100) return res.json({ results: [] });
     await access.requireBookAccess(req.reader, bookId, req.ip);
     const e = await currentEdition(bookId);
-    if (!e || e.format !== 'EPUB') return res.json({ results: [], supported: false });
-    const { rows } = await pool.query(`SELECT * FROM book_assets WHERE edition_id=$1 AND kind='CHAPTER' ORDER BY ordinal`, [e.id]);
+    if (!e) return res.json({ results: [], supported: false });
+    const { rows } = await pool.query(`SELECT * FROM book_assets WHERE edition_id=$1 AND kind=$2 ORDER BY ordinal`, [e.id, e.format === 'PDF' ? 'PAGE_TEXT' : 'CHAPTER']);
+    if (!rows.length) return res.json({ results: [], supported: false });
     const needle = q.toLowerCase();
     const results = [];
     for (const a of rows) {

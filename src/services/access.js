@@ -27,7 +27,7 @@ export { SESSION_COOKIE };
 
 export function createAccess({ pool, cfg, settings, events, otpDelivery, logger }) {
   const tokenHash = (t, purpose) => keyedHash(cfg.hashPepper, t, purpose);
-  const readerBase = () => (cfg.readerBaseUrl || cfg.publicBaseUrl).replace(/\/$/, '');
+  const readerBase = () => cfg.readerBaseUrl.replace(/\/$/, '');
 
   function parseDeviceKey(jwk) {
     try {

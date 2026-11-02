@@ -9,6 +9,7 @@ import {
 } from '../lib/http.js';
 import { hashPassword } from '../lib/crypto.js';
 import { detectImageMime } from '../services/ingest.js';
+import { traceCode } from '../services/watermark.js';
 import { POLICY_SCHEMA, WEBSITE_KEYS } from '../services/settings.js';
 import { validatePasswordStrength } from './adminAuth.js';
 
@@ -276,7 +277,7 @@ export function adminRoutes(ctx) {
           WHERE e.customer_id=$1 ORDER BY e.created_at DESC LIMIT 100`),
       q(`SELECT id, event_type, severity, created_at, resolved_at FROM security_events WHERE customer_id=$1 ORDER BY created_at DESC LIMIT 50`),
     ]);
-    res.json({ customer, orders, licenses, invitations, devices, activity, security });
+    res.json({ customer, orders, licenses: licenses.map((l) => ({ ...l, trace_code: traceCode(cfg.hashPepper, l.id) })), invitations, devices, activity, security });
   });
 
   r.patch('/customers/:id', can('customers.manage'), async (req, res) => {
@@ -654,13 +655,20 @@ export function adminRoutes(ctx) {
     const vals = []; const where = [];
     if (['PENDING_ACTIVATION', 'ACTIVE', 'SUSPENDED', 'REVOKED', 'EXPIRED'].includes(req.query.status)) { vals.push(req.query.status); where.push(`l.status=$${vals.length}`); }
     if (req.query.customerId) { vals.push(uuidParam(req.query.customerId)); where.push(`l.customer_id=$${vals.length}`); }
+    // Find the license behind a watermark reference seen on a leaked page.
+    if (req.query.ref) {
+      const ref = String(req.query.ref).trim().toUpperCase();
+      const { rows: all } = await pool.query('SELECT id FROM reading_licenses');
+      const hit = all.find((l) => traceCode(cfg.hashPepper, l.id) === ref);
+      vals.push(hit ? hit.id : '00000000-0000-0000-0000-000000000000'); where.push(`l.id=$${vals.length}`);
+    }
     const w = where.length ? `WHERE ${where.join(' AND ')}` : '';
     const { rows } = await pool.query(
       `SELECT l.*, c.full_name, c.phone_e164, b.title AS book_title, o.reference AS order_reference,
               (SELECT count(*) FROM device_authorizations da JOIN registered_devices d ON d.id=da.device_id WHERE da.license_id=l.id AND da.status='ACTIVE' AND d.status='ACTIVE')::int AS active_devices
          FROM reading_licenses l JOIN customers c ON c.id=l.customer_id JOIN books b ON b.id=l.book_id JOIN orders o ON o.id=l.order_id
          ${w} ORDER BY l.created_at DESC LIMIT ${limit} OFFSET ${offset}`, vals);
-    res.json({ licenses: rows, page, limit });
+    res.json({ licenses: rows.map((l) => ({ ...l, trace_code: traceCode(cfg.hashPepper, l.id) })), page, limit });
   });
 
   async function licenseAction(req, id, fn) {
@@ -781,22 +789,11 @@ export function adminRoutes(ctx) {
   });
 
   // =========================================================================
-  // Website content, testimonials, WhatsApp settings
+  // Download page and WhatsApp settings
   // =========================================================================
   r.get('/website', can('content.manage'), async (req, res) => {
-    const content = await settings.website();
-    const { rows: testimonials } = await pool.query('SELECT * FROM testimonials ORDER BY sort_order, created_at');
-    res.json({ content, testimonials });
+    res.json({ content: await settings.website() });
   });
-
-  const listOf = (items, keys, max = 30) => {
-    if (!Array.isArray(items) || items.length > max) throw badRequest('Too many items');
-    return items.map((it) => Object.fromEntries(keys.map((k) => {
-      const v = it?.[k];
-      if (typeof v !== 'string') return [k, ''];
-      return [k, v.slice(0, 2000)];
-    })));
-  };
 
   r.put('/website/:key', can('content.manage'), async (req, res) => {
     const key = req.params.key;
@@ -804,29 +801,14 @@ export function adminRoutes(ctx) {
     const v = req.body || {};
     const str = (x, max = 5000) => (typeof x === 'string' ? x.slice(0, max) : '');
     let value;
-    switch (key) {
-      case 'site': {
-        let featured = null;
-        if (v.featuredBookId) featured = uuidParam(v.featuredBookId);
-        value = { siteName: str(v.siteName, 120), tagline: str(v.tagline, 200), featuredBookId: featured, seoDescription: str(v.seoDescription, 300) };
-        break;
-      }
-      case 'hero': value = { headline: str(v.headline, 200), subheadline: str(v.subheadline, 500) }; break;
-      case 'about': value = { heading: str(v.heading, 120), body: str(v.body, 10000) }; break;
-      case 'author': value = { heading: str(v.heading, 120), name: str(v.name, 120), bio: str(v.bio, 5000) }; break;
-      case 'learn': case 'benefits': value = { heading: str(v.heading, 120), items: listOf(v.items, ['title', 'text']) }; break;
-      case 'faq': value = { heading: str(v.heading, 120), items: listOf(v.items, ['question', 'answer']) }; break;
-      case 'cta': value = { heading: str(v.heading, 200), body: str(v.body, 1000) }; break;
-      case 'footer': value = { copyright: str(v.copyright, 200) }; break;
-      case 'whatsapp': {
-        const number = v.number ? normalizePhone(String(v.number), '') : '';
-        if (v.number && !number) throw badRequest('Enter the WhatsApp number in international format, e.g. +254712345678');
-        const invitationTemplate = str(v.invitationTemplate, 2000);
-        if (!invitationTemplate.includes('{invitation_link}')) throw badRequest('The invitation message must contain {invitation_link}');
-        value = { number, orderMessage: str(v.orderMessage, 1000), invitationTemplate };
-        break;
-      }
-      default: throw notFound();
+    if (key === 'site') {
+      value = { featuredBookId: v.featuredBookId ? uuidParam(v.featuredBookId) : null };
+    } else {
+      const number = v.number ? normalizePhone(String(v.number), '') : '';
+      if (v.number && !number) throw badRequest('Enter the WhatsApp number in international format, e.g. +254712345678');
+      const invitationTemplate = str(v.invitationTemplate, 2000);
+      if (!invitationTemplate.includes('{invitation_link}')) throw badRequest('The invitation message must contain {invitation_link}');
+      value = { number, orderMessage: str(v.orderMessage, 1000), invitationTemplate };
     }
     await tx(pool, async (db) => {
       await db.query(`INSERT INTO website_settings (key, value, updated_by) VALUES ($1,$2,$3)
@@ -834,46 +816,6 @@ export function adminRoutes(ctx) {
       await audit(db, req, 'website.update', 'website_settings', key, value);
     });
     res.json({ ok: true, value });
-  });
-
-  const testimonialSchema = {
-    authorName: { type: 'string', required: true, max: 120 }, authorTitle: { type: 'string', max: 160, default: '' },
-    quote: { type: 'string', required: true, max: 2000 }, rating: { type: 'int', min: 1, max: 5, nullable: true },
-    published: { type: 'bool', default: true }, sortOrder: { type: 'int', min: 0, max: 1000, default: 0 }, bookId: { type: 'uuid', nullable: true },
-  };
-  r.post('/testimonials', can('content.manage'), async (req, res) => {
-    const b = validate(req.body, testimonialSchema);
-    const t = await tx(pool, async (db) => {
-      const { rows: [row] } = await db.query(
-        `INSERT INTO testimonials (book_id, author_name, author_title, quote, rating, published, sort_order) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
-        [b.bookId || null, b.authorName, b.authorTitle, b.quote, b.rating ?? null, b.published, b.sortOrder]);
-      await audit(db, req, 'testimonial.create', 'testimonial', row.id, { authorName: b.authorName });
-      return row;
-    });
-    res.status(201).json({ testimonial: t });
-  });
-
-  r.put('/testimonials/:id', can('content.manage'), async (req, res) => {
-    const id = uuidParam(req.params.id);
-    const b = validate(req.body, testimonialSchema);
-    await tx(pool, async (db) => {
-      const { rowCount } = await db.query(
-        `UPDATE testimonials SET book_id=$2, author_name=$3, author_title=$4, quote=$5, rating=$6, published=$7, sort_order=$8 WHERE id=$1`,
-        [id, b.bookId || null, b.authorName, b.authorTitle, b.quote, b.rating ?? null, b.published, b.sortOrder]);
-      if (!rowCount) throw notFound();
-      await audit(db, req, 'testimonial.update', 'testimonial', id, { authorName: b.authorName });
-    });
-    res.json({ ok: true });
-  });
-
-  r.delete('/testimonials/:id', can('content.manage'), async (req, res) => {
-    const id = uuidParam(req.params.id);
-    await tx(pool, async (db) => {
-      const { rowCount } = await db.query('DELETE FROM testimonials WHERE id=$1', [id]);
-      if (!rowCount) throw notFound();
-      await audit(db, req, 'testimonial.delete', 'testimonial', id, {});
-    });
-    res.json({ ok: true });
   });
 
   // =========================================================================

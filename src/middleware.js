@@ -50,7 +50,7 @@ export function securityHeaders(cfg) {
 
 /** Reject cross-site state-changing requests and form posts. */
 export function originCheck(cfg) {
-  const allowed = new Set([cfg.publicBaseUrl, cfg.adminBaseUrl, cfg.readerBaseUrl].filter(Boolean).map((u) => new URL(u).origin));
+  const allowed = new Set([cfg.adminBaseUrl, cfg.readerBaseUrl].filter(Boolean).map((u) => new URL(u).origin));
   return (req, res, next) => {
     if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return next();
     const origin = req.get('origin');

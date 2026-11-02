@@ -21,7 +21,7 @@ customers ─< registered_devices ─< device_authorizations >─ reading_licens
 customers ─< device_replacements, pending_device_grants
 registered_devices ─< reading_sessions, request_nonces
 customers ─< reading_progress, bookmarks, reading_events, security_events
-audit_logs, website_settings, testimonials, system_settings
+audit_logs, website_settings, system_settings
 ```
 
 ## Tables
@@ -33,7 +33,7 @@ audit_logs, website_settings, testimonials, system_settings
 | `admin_sessions` | Hashed token, CSRF token, `mfa_pending`, expiry, revocation |
 | `books` | Title, author, price, currency, availability, published flag, private cover key, current edition, default `max_devices` and license duration |
 | `book_editions` | Versioned uploads: format, status (PROCESSING/READY/FAILED/ARCHIVED), encrypted original location, SHA-256, size, **wrapped data key**, TOC |
-| `book_assets` | Individually encrypted chapters, page images and images with opaque ids |
+| `book_assets` | Individually encrypted chapters, PDF page images, PDF page text (search only, never served) and images, with opaque ids |
 | `customers` | Name, **unique E.164 WhatsApp number**, optional email, status (PENDING_PAYMENT, PAID, INVITED, ACTIVATED, ACTIVE, SUSPENDED, REVOKED, EXPIRED), notes |
 | `orders`, `order_items` | Unique reference; status PENDING_PAYMENT/PAID/REJECTED/CANCELLED; one or more books |
 | `payments` | Amount, method, reference, status PENDING/VERIFIED/REJECTED, verifier, reason. **Partial unique index**: a `(method, reference)` can verify only one payment |
@@ -50,8 +50,7 @@ audit_logs, website_settings, testimonials, system_settings
 | `reading_events` | INVITATION_OPENED, OTP_REQUESTED, OTP_VERIFIED, DEVICE_REGISTERED, LICENSE_ACTIVATED, READER_OPENED, CHAPTER_ACCESSED, READING_SESSION_ENDED, ACCESS_DENIED, SESSION_EXPIRED, DEVICE_REPLACED, ACCOUNT_SUSPENDED, LICENSE_REVOKED |
 | `security_events` | Typed alerts with severity, hashed IP, resolution |
 | `audit_logs` | Every admin action. **Append-only**: a trigger rejects UPDATE and DELETE |
-| `website_settings` | JSON content blocks for the marketing site and WhatsApp templates |
-| `testimonials` | Quotes shown on the site |
+| `website_settings` | `site` (book shown on the download page) and `whatsapp` (order link, invitation message). Migration 002 removed the old marketing-site content and the `testimonials` table |
 | `system_settings` | Access policy values (see Admin manual → System Settings) |
 
 ## Transactions

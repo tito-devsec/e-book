@@ -1,8 +1,8 @@
 FROM node:22-bookworm-slim
 
-# poppler-utils provides pdftoppm for PDF editions.
+# fonts-dejavu-core: font for the per-buyer watermark stamped on PDF pages.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends poppler-utils ca-certificates tini \
+ && apt-get install -y --no-install-recommends fonts-dejavu-core ca-certificates tini \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
