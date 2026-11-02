@@ -66,3 +66,31 @@ test('localhost: the customer site and dashboard are selected by port', async ()
     servers.forEach((sv) => sv.close());
   }
 });
+
+test('tunnels: with separate local ports, the port decides whatever public host arrives', async () => {
+  const { createApp } = await import('../src/app.js');
+  const servers = await Promise.all([0, 1].map(() => new Promise((r) => { const sv = http.createServer(); sv.listen(0, '127.0.0.1', () => r(sv)); })));
+  const [rp, ap] = servers.map((sv) => sv.address().port);
+  const cfg = {
+    ...ctx.cfg, readerPort: rp, adminPort: ap,
+    readerBaseUrl: 'https://quiet-river.trycloudflare.com', adminBaseUrl: 'https://bold-lake.trycloudflare.com',
+  };
+  const app = createApp({ ...ctx, cfg });
+  servers.forEach((sv) => sv.on('request', app));
+  const at = (p, path, host) => new Promise((resolve, reject) => {
+    http.get({ host: '127.0.0.1', port: p, path, headers: { host, accept: 'text/html' } }, (res) => { res.resume(); res.on('end', () => resolve(res.statusCode)); }).on('error', reject);
+  });
+  try {
+    for (const host of ['bold-lake.trycloudflare.com', `localhost:${ap}`]) {
+      assert.equal(await at(ap, '/admin', host), 200, host);
+      assert.equal(await at(ap, '/access/abc', host), 404, host);
+    }
+    for (const host of ['quiet-river.trycloudflare.com', `localhost:${rp}`]) {
+      assert.equal(await at(rp, '/', host), 200, host);
+      assert.equal(await at(rp, '/admin', host), 404, host);
+      assert.equal(await at(rp, '/api/admin/overview', host), 404, host);
+    }
+  } finally {
+    servers.forEach((sv) => sv.close());
+  }
+});

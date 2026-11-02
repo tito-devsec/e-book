@@ -72,6 +72,16 @@ sample customers and sales.
 To load your own book file during development: `npm run seed:dev -- --book "C:\path\to\book.pdf"`
 (or upload it in the dashboard under Books).
 
+## Letting someone remote test it
+
+`npm run share` opens two temporary public HTTPS addresses for this computer, one for the
+dashboard and one for the customer site, using Cloudflare quick tunnels (free, no account).
+It needs `cloudflared` (Windows: `winget install --id Cloudflare.cloudflared`). The script
+prints both addresses: the tester logs into the dashboard address and creates links, and
+those links open on any phone. Keep the window open and the computer awake. The addresses
+change on every start, so links and added apps from an earlier run stop working.
+Give testers their own MANAGER account (Administrators page), not your owner account.
+
 ## Production
 
 ```bash

@@ -58,9 +58,12 @@ export function createApp(ctx) {
   const onApp = (u, req) => (isLocal(u)
     ? req.socket.localPort === Number(u.port || (u.protocol === 'https:' ? 443 : 80))
     : req.get('host') === u.host);
+  // When the dashboard has its own listening port, that port always decides. This keeps the
+  // split working behind tunnels and proxies that forward to a local port with any Host header.
+  const byPort = Boolean(cfg.adminPort && cfg.readerPort && cfg.adminPort !== cfg.readerPort);
   const gate = (kind) => (req, res, next) => {
-    if (!separateAdmin) return next();
-    const adminHost = onApp(urls.admin, req);
+    if (!separateAdmin && !byPort) return next();
+    const adminHost = byPort ? req.socket.localPort === cfg.adminPort : onApp(urls.admin, req);
     return (kind === 'admin') === adminHost ? next() : next('router');
   };
   const gated = (kind, router) => { const r = express.Router(); r.use(gate(kind), router); return r; };
