@@ -337,7 +337,9 @@ async function viewInvitation(tokenInPath) {
   let info; let claim;
   try {
     info = await api('POST', '/api/access/validate-invitation', { token });
-    if (info.state === 'VALID') claim = (await api('POST', '/api/access/prepare-app', { token })).claim;
+    // The server already put a code for the app into this page (see app.js on the server).
+    const inPage = document.querySelector('meta[name="app-claim"]')?.content;
+    if (info.state === 'VALID') claim = CLAIM_RE.test(inPage || '') ? inPage : (await api('POST', '/api/access/prepare-app', { token })).claim;
   } catch (err) { return viewOffline(err); }
   if (info.state !== 'VALID') {
     sessionStorage.removeItem('invite');
@@ -401,6 +403,29 @@ function viewAddToIphone(book) {
     h('div', { class: 'ios-pointer', 'aria-hidden': 'true' }, h('span', { text: 'Share is here' }), fi('arrow-down'))));
 }
 
+/** "Paste your private link" box: signs this device in with a link that is still unused. */
+function pasteLinkBox() {
+  const input = h('input', { type: 'text', inputmode: 'url', autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false', placeholder: 'Paste your private link here', 'aria-label': 'Private link' });
+  const err = errorLine();
+  const go_ = h('button', { class: 'btn btn-primary btn-block', type: 'button' }, 'Open my book');
+  go_.addEventListener('click', async () => {
+    err.textContent = '';
+    const m = input.value.match(/access\/([A-Za-z0-9_-]{43})/) || input.value.trim().match(/^([A-Za-z0-9_-]{43})$/);
+    if (!m) { err.textContent = 'That is not a private link. Copy the whole link from the WhatsApp message.'; return; }
+    setBusy(go_, true, 'Open my book');
+    try {
+      const info = await api('POST', '/api/access/validate-invitation', { token: m[1] });
+      if (info.state !== 'VALID') { err.textContent = info.state === 'EXPIRED' ? 'This link has expired. Ask the book owner for a new one.' : 'This link has already been used. Ask the book owner for a new one.'; return; }
+      const { claim } = await api('POST', '/api/access/prepare-app', { token: m[1] });
+      const r = await tryClaim(claim);
+      if (!r) { err.textContent = 'This link could not be used. Ask the book owner for a new one.'; return; }
+      claims.set('app', claim);
+      return go(`/read/${r.bookId}`, true);
+    } catch (e) { err.textContent = e.status === 0 ? 'You are offline. Connect to the internet and try again.' : 'This link could not be used. Ask the book owner for a new one.'; } finally { setBusy(go_, false, 'Open my book'); }
+  });
+  return h('div', { class: 'stack' }, h('label', { class: 'field' }, input), err, go_);
+}
+
 /** Screens for visitors without access: used, expired or invalid links, and the bare app. */
 async function viewNoAccess(kind) {
   let pub = {};
@@ -412,9 +437,12 @@ async function viewNoAccess(kind) {
     app: ['Open your private link', 'To get your book on this device, open the private link the book owner sent you on WhatsApp. If you need a new one, ask the book owner.'],
   };
   const [title, text] = texts[kind] || texts.invalid;
+  // Inside the app (no browser to open the link in): the link can be pasted here instead.
+  const paste = kind === 'app' && isStandalone() ? pasteLinkBox() : null;
   mount(h('main', { class: 'screen denied' }, h('div', { class: 'panel' },
     h('div', { class: 'lock' }, fi(kind === 'app' ? 'link' : 'lock')),
     h('h1', { text: title }), h('p', { class: 'muted', text }),
+    paste,
     h('div', { class: 'stack' },
       pub.orderUrl ? h('a', { class: 'btn btn-block', href: pub.orderUrl, target: '_blank', rel: 'noopener noreferrer' }, h('i', { class: 'fi fi-brands-whatsapp', 'aria-hidden': 'true' }), ` Contact ${pub.contactName || 'the book owner'} on WhatsApp`) : null))));
 }
@@ -763,7 +791,7 @@ class Reader {
 
   pageEl(label) {
     return h('div', { class: 'page', 'data-density': 'soft' },
-      h('div', { class: 'page-inner' }), h('div', { class: 'pageno', text: label }));
+      h('div', { class: 'page-inner' }), this.isPdf ? null : h('div', { class: 'pageno', text: label }));
   }
 
   // PDF ---------------------------------------------------------------------
@@ -1154,11 +1182,21 @@ class Reader {
     const onBlur = () => shield(true);
     const onFocus = () => shield(false);
     const onVis = () => shield(document.visibilityState !== 'visible');
+    const onHide = () => shield(true);
+    addEventListener('pagehide', onHide);
+    onCleanup(() => removeEventListener('pagehide', onHide));
     const onGuardKey = (e) => {
       if (e.target.closest?.('input, textarea')) return;
       const k = e.key.toLowerCase();
       if ((e.ctrlKey || e.metaKey) && ['p', 's', 'c', 'a'].includes(k)) { e.preventDefault(); }
-      if (k === 'printscreen') { shield(true); setTimeout(() => { if (document.hasFocus()) shield(false); }, 1500); }
+      // Screenshot shortcuts: Print Screen, Win+Shift+S, Mac Cmd+Shift+3/4/5, Ctrl+Shift+S.
+      const shot = k === 'printscreen' || k === 'snapshot'
+        || ((e.metaKey || e.ctrlKey) && e.shiftKey && ['s', '3', '4', '5', '#', '$', '%'].includes(k));
+      if (shot) {
+        shield(true);
+        try { navigator.clipboard?.writeText(' ').catch(() => {}); } catch { /* ignore */ }
+        setTimeout(() => { if (document.hasFocus()) shield(false); }, 2500);
+      }
     };
     addEventListener('blur', onBlur); addEventListener('focus', onFocus);
     document.addEventListener('visibilitychange', onVis);

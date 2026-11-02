@@ -122,6 +122,23 @@ export function createApp(ctx) {
     res.sendFile(path.join(PUBLIC_DIR, 'reader', 'index.html'));
   };
   const readerPages = express.Router();
+  // The private-link page is served with the app's start address already in it. iPhone reads the
+  // manifest when the page loads and ignores later changes, so a manifest set by JavaScript is
+  // too late there: without this, the icon opens the app with no code and shows "private link".
+  let shellHtml = null;
+  readerPages.get('/access/:token', async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    shellHtml ??= await fs.readFile(path.join(PUBLIC_DIR, 'reader', 'index.html'), 'utf8');
+    let html = shellHtml;
+    if (/^[A-Za-z0-9_-]{43}$/.test(req.params.token) && ctx.rateLimiter.hit(`shell:${req.ip}`, 40, 10 * 60000).allowed) {
+      try {
+        const claim = await ctx.access.prepareApp(req.params.token, req.ip);
+        html = html.replace('<link rel="manifest" href="/manifest.webmanifest">',
+          `<link rel="manifest" href="/manifest.webmanifest?claim=${claim}">\n<meta name="app-claim" content="${claim}">`);
+      } catch { /* not a valid link: the page explains it */ }
+    }
+    res.type('html').send(html);
+  });
   readerPages.get(['/access/:token', '/login', '/app', '/library', '/book/:id', '/read/:id', '/denied', '/install'], readerShell);
   let manifestJson = null;
   readerPages.get('/manifest.webmanifest', async (req, res) => {

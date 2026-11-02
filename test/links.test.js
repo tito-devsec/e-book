@@ -65,3 +65,25 @@ test('default link validity is three days', async () => {
   const hours = (new Date(inv.invitation.expires_at) - Date.now()) / 3600000;
   assert.ok(hours > 71 && hours <= 72, `got ${hours}`);
 });
+
+test('iPhone: the link page itself carries the app start address, so the added icon opens the book', async () => {
+  const o = await createOrder(admin, bookId);
+  const inv = await invite(admin, o.licenseId);
+  const token = inv.link.split('/access/')[1];
+  const safari = new Browser(env.base, 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) Safari/604.1');
+  const page = await fetch(`${env.base}/access/${token}`, { headers: { 'user-agent': safari.ua } }).then((r) => r.text());
+  const claim = page.match(/<link rel="manifest" href="\/manifest\.webmanifest\?claim=([A-Za-z0-9_-]{43})">/)?.[1];
+  assert.ok(claim, 'manifest link with the code is in the first HTML, before any script runs');
+  assert.equal(page.match(/name="app-claim" content="([^"]+)"/)?.[1], claim);
+  const manifest = await safari.get(`/manifest.webmanifest?claim=${claim}`);
+  assert.equal(manifest.data.start_url, `/app?claim=${claim}`);
+  const app = new Browser(env.base, 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) Mobile/15E148');
+  await app.newDeviceKey();
+  const c = await app.post('/api/access/claim', { claim, deviceKey: app.jwk });
+  assert.equal(c.status, 200);
+  assert.doesNotMatch(page, new RegExp(token), 'the link token is not written into the page');
+  // A wrong or used link gets the plain page, no code.
+  const bad = await fetch(`${env.base}/access/${'A'.repeat(43)}`).then((r) => r.text());
+  assert.doesNotMatch(bad, /app-claim/);
+  assert.match(bad, /<link rel="manifest" href="\/manifest\.webmanifest">/);
+});
