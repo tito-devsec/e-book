@@ -131,6 +131,7 @@ async function handleAuthError(err) {
     go(`/login?reason=${err.code === 'SESSION_EXPIRED' ? 'expired' : 'signin'}`, true);
     return true;
   }
+  if (err.code === 'APP_INSTALL_REQUIRED') { go('/', true); return true; }
   if (err.status === 404) { go('/denied', true); return true; }
   return false;
 }
@@ -198,7 +199,14 @@ function installSteps() {
   }
 }
 
-function showInstallModal({ coverUrl, onContinue }) {
+/** Tell the server this device now has the app; the download page then expires. */
+async function markInstalled() {
+  try { await api('POST', '/api/reader/app-installed', undefined, { signed: true }); } catch { /* not signed in yet */ }
+}
+addEventListener('appinstalled', () => { markInstalled().then(() => { if (/^\/(book\/|$)/.test(location.pathname)) route(); }); });
+
+/** Mandatory "add to your device" step: reading happens only in the installed app. */
+function showInstallModal({ coverUrl, title = 'Add to your device' }) {
   const close = () => modal.remove();
   const steps = h('ol', { class: 'steps' }, installSteps().map((s) => h('li', { text: s })));
   const installBtn = installPrompt ? h('button', {
@@ -208,19 +216,16 @@ function showInstallModal({ coverUrl, onContinue }) {
       p.prompt();
       const choice = await p.userChoice.catch(() => ({ outcome: 'dismissed' }));
       close();
-      if (choice.outcome === 'accepted') toast('Installed. Open “My Books” from your home screen or app list.');
-      if (onContinue) onContinue();
+      if (choice.outcome === 'accepted') { await markInstalled(); route(); }
     },
-  }, 'Install Reader') : null;
+  }, 'Add to my device') : null;
   const modal = h('div', { class: 'modal', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'install-title' },
     h('div', { class: 'panel' },
       coverUrl ? h('img', { src: coverUrl, alt: '' }) : null,
-      h('h1', { id: 'install-title', text: 'Get it on your device' }),
-      h('p', { class: 'muted', text: 'Install the private reader so your book opens straight from your home screen. No file is downloaded: your book stays protected inside the app.' }),
+      h('h1', { id: 'install-title', text: title }),
+      h('p', { class: 'muted', text: 'Your book opens only in the private reader app on this device. Add it now, then open “My Books” to start reading. No file is downloaded and the book cannot be shared.' }),
       installBtn || steps,
-      h('div', { class: 'stack' },
-        onContinue ? h('button', { class: installBtn ? 'btn btn-block' : 'btn btn-primary btn-block', onclick: () => { close(); onContinue(); } }, 'Continue reading in browser') : null,
-        h('button', { class: 'btn-link', onclick: close }, 'Not now'))));
+      h('div', { class: 'stack' }, h('button', { class: 'btn-link', onclick: close }, 'Not now'))));
   modal.addEventListener('click', (e) => { if (e.target === modal) close(); });
   modal.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); });
   document.body.append(modal);
@@ -408,11 +413,13 @@ function viewLogin(reason) {
 
 function replacePrompt({ grantToken, mode }) {
   const err = errorLine();
-  const btn = h('button', { class: 'btn btn-primary btn-block' }, mode === 'ADMIN_APPROVAL' ? 'Request access on this device' : 'Use this device instead');
+  const inApp = isStandalone();
+  const label = inApp ? 'Continue' : mode === 'ADMIN_APPROVAL' ? 'Request access on this device' : 'Use this device instead';
+  const btn = h('button', { class: 'btn btn-primary btn-block' }, label);
   btn.addEventListener('click', async () => {
     setBusy(btn, true);
     try {
-      const r = await api('POST', '/api/access/replace-device', { grantToken });
+      const r = await api('POST', '/api/access/replace-device', { grantToken, appInstall: inApp });
       if (r.status === 'PENDING_APPROVAL') {
         btn.replaceWith(h('div', { class: 'notice', text: 'Your request was sent to the book owner. Once approved, sign in again on this device.' }));
         return;
@@ -422,10 +429,14 @@ function replacePrompt({ grantToken, mode }) {
     } catch (ex) { err.textContent = ex.message; setBusy(btn, false, 'Try again'); }
   });
   return h('div', { class: 'stack' },
-    h('div', { class: 'notice', text: 'Your book is registered to another device or browser.' }),
-    h('p', { text: mode === 'ADMIN_APPROVAL'
-      ? 'Moving your access to this device needs approval from the book owner.'
-      : 'Continuing here moves your access to this device. The other device will stop showing the book. If you just installed the app on this same phone, choose this option.' }),
+    inApp
+      ? h('div', { class: 'notice', text: 'Finish setting up the app on this device.' })
+      : h('div', { class: 'notice', text: 'Your book is registered to another device or browser.' }),
+    h('p', { text: inApp
+      ? 'Your book moves into this app. The browser you used to activate it will stop showing the book.'
+      : mode === 'ADMIN_APPROVAL'
+        ? 'Moving your access to this device needs approval from the book owner.'
+        : 'Continuing here moves your access to this device. The other device will stop showing the book.' }),
     err, btn, h('a', { class: 'btn btn-block', href: '/login', 'data-nav': true }, 'Cancel'));
 }
 
@@ -439,6 +450,7 @@ async function viewLauncher() {
     if (['DEVICE_REVOKED', 'ACCOUNT_SUSPENDED'].includes(s.code)) return handleAuthError(new ApiError(403, { code: s.code }));
     return go('/login', true);
   }
+  if (isStandalone() && !s.device?.installed) await markInstalled();
   if (s.books.length === 1) return go(isStandalone() ? `/read/${s.books[0].id}` : `/book/${s.books[0].id}`, true);
   return go('/library', true);
 }
@@ -507,11 +519,11 @@ async function viewBook(bookId, { session } = {}) {
     info = await api('GET', `/api/reader/books/${bookId}`, undefined, { signed: true });
   } catch (err) { if (await handleAuthError(err)) return; return viewOffline(err); }
   if (isStandalone()) return go(`/read/${bookId}`, true);
+  if (info.installedOnThisDevice) return viewDownloadExpired(info.book);
 
   const coverImg = h('img', { alt: `${info.book.title} cover` });
   coverFor(bookId).then((u) => { if (u) coverImg.src = u; });
   const ready = info.preparation === 'READY';
-  const read = () => go(`/read/${bookId}`);
 
   mount(downloadPage({
     book: info.book, coverImg, disabled: !ready,
@@ -519,9 +531,19 @@ async function viewBook(bookId, { session } = {}) {
       h('span', { class: 'chip', text: 'Access active on this device' })],
     topRight: s.books.length > 1 ? h('a', { href: '/library', 'data-nav': true }, 'My books') : h('button', { class: 'btn-link', onclick: logout }, 'Sign out'),
     onDownload: () => showInstallModal({ coverUrl: coverImg.src }),
-    onStart: () => showInstallModal({ coverUrl: coverImg.src, onContinue: read }),
+    onStart: () => showInstallModal({ coverUrl: coverImg.src, title: 'Add to your device to start reading' }),
   }));
   onCleanup(revokeBlobs);
+}
+
+/** The download page is single-use: once the app is installed on this device it expires. */
+function viewDownloadExpired(book) {
+  mount(h('main', { class: 'screen denied' }, h('div', { class: 'panel' },
+    h('div', { class: 'lock', 'aria-hidden': 'true', text: '✓' }),
+    h('h1', { text: 'This download page has expired' }),
+    h('p', { text: `${book.title} is installed on this device.` }),
+    h('p', { class: 'muted', text: 'Open “My Books” from your home screen or app list to read. The book opens only in the app and cannot be shared.' }),
+    h('div', { class: 'stack' }, h('button', { class: 'btn-link', onclick: logout }, 'Sign out of this browser')))));
 }
 
 // ===========================================================================
@@ -584,7 +606,7 @@ function viewInstallGuide() {
 // ===========================================================================
 function viewDenied(reason) {
   const extra = {
-    device: 'Access on this device was removed by the book owner, or moved to another device.',
+    device: 'Your book was moved to the reader app or to another device. Open “My Books” to read.',
     suspended: 'Access to this account is currently paused.',
   }[reason];
   mount(h('main', { class: 'screen denied' }, h('div', { class: 'panel' },
@@ -614,6 +636,10 @@ async function viewReader(bookId) {
       if (s.code === 'SESSION_EXPIRED') return go('/login?reason=expired', true);
       return viewDenied('signin');
     }
+    // Reading happens only in the installed app: in a browser tab, go to the download page
+    // (which offers "Add to your device", or shows that it expired after installation).
+    if (s.requireApp && !isStandalone()) return go(`/book/${bookId}`, true);
+    if (isStandalone() && !s.device?.installed) await markInstalled();
     [book, manifest, progress] = await Promise.all([
       api('GET', `/api/reader/books/${bookId}`, undefined, { signed: true }),
       api('GET', `/api/reader/books/${bookId}/manifest`, undefined, { signed: true }),

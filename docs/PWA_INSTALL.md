@@ -4,6 +4,11 @@ The reader is a Progressive Web App: it installs from the browser, with no app s
 adds a **My Books** icon that opens straight to your book. Nothing is downloaded except the app
 itself; the book stays protected on the server.
 
+**Installing is required to read** (the owner can turn this off under System Settings →
+"Reading only in the installed app"). The download page expires on a device as soon as the app is
+installed there. Browsers that cannot install web apps (Firefox on desktop) cannot be used to read
+while this setting is on; use Chrome, Edge or Safari.
+
 The reader also shows these steps itself: the **DOWNLOAD BOOK** button and the
 *Install the reader* option in reading settings open them, and `/install` lists every platform.
 

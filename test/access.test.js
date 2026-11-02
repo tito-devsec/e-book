@@ -2,7 +2,7 @@
 import { test, before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  startServer, loginAdmin, createBook, createOrder, invite, Browser, activate, lastOtp, clearOtpCooldown,
+  startServer, loginAdmin, createBook, createOrder, invite, Browser, activate, lastOtp, clearOtpCooldown, installApp,
 } from './helpers.js';
 
 let env; let admin; let bookId;
@@ -328,6 +328,7 @@ test('new device: self-service replacement revokes the previous device (Scenario
   const rep = await laptop.post('/api/access/replace-device', { grantToken: v.data.grantToken });
   assert.equal(rep.status, 200);
   laptop.csrf = rep.data.csrf;
+  await installApp(laptop);
   assert.equal((await laptop.get(`/api/reader/books/${bookId}/manifest`, { sign: true })).status, 200);
   const old = await phoneA.get('/api/reader/library', { sign: true });
   assert.equal(old.status, 403);
@@ -361,6 +362,7 @@ test('admin-approval replacement mode holds the new device until approved', asyn
     const v2 = await second.post('/api/auth/verify-otp', { challengeId: req2.data.challengeId, code: lastOtp(env, o.phone), deviceKey: second.jwk });
     assert.equal(v2.status, 200);
     second.csrf = v2.data.csrf;
+    await installApp(second);
     assert.equal((await second.get(`/api/reader/books/${bookId}/manifest`, { sign: true })).status, 200);
     assert.equal((await first.get('/api/reader/library', { sign: true })).status, 403, 'old device revoked');
   } finally {
@@ -424,4 +426,78 @@ test('per-IP limiter blocks OTP request floods across numbers', async () => {
   for (let i = 0; i < 11; i += 1) last = await b.post('/api/auth/request-otp', { phone: `+2547000000${String(i).padStart(2, '0')}` });
   assert.equal(last.status, 429);
   assert.ok(last.headers.get('retry-after'));
+});
+
+// ---------------------------------------------------------------------------
+// Reading only in the installed app; download page expires after installation
+// ---------------------------------------------------------------------------
+test('book content is refused until the app is installed; the download page then expires', async () => {
+  const o = await createOrder(admin, bookId);
+  const inv = await invite(admin, o.licenseId);
+  const b = new Browser(env.base);
+  await activate(env, b, inv.token, o.phone, { install: false });
+  const before = await b.get(`/api/reader/books/${bookId}`, { sign: true });
+  assert.equal(before.status, 200, 'download page info is available');
+  assert.equal(before.data.installedOnThisDevice, false);
+  const blocked = await b.get(`/api/reader/books/${bookId}/manifest`, { sign: true });
+  assert.equal(blocked.status, 403);
+  assert.equal(blocked.data.code, 'APP_INSTALL_REQUIRED');
+  assert.equal((await b.get('/api/auth/session')).data.requireApp, true);
+  await installApp(b);
+  const after = await b.get(`/api/reader/books/${bookId}`, { sign: true });
+  assert.equal(after.data.installedOnThisDevice, true, 'download page is now expired for this device');
+  assert.equal((await b.get('/api/auth/session')).data.device.installed, true);
+  assert.equal((await b.get(`/api/reader/books/${bookId}/manifest`, { sign: true })).status, 200);
+  const { rows } = await env.ctx.pool.query(`SELECT 1 FROM reading_events WHERE customer_id=$1 AND event_type='APP_INSTALLED'`, [o.customerId]);
+  assert.equal(rows.length, 1);
+});
+
+test('owner can allow reading in the browser by turning the install requirement off', async () => {
+  await admin.request('PUT', '/api/admin/settings', { require_app_install: false });
+  try {
+    const o = await createOrder(admin, bookId);
+    const inv = await invite(admin, o.licenseId);
+    const b = new Browser(env.base);
+    await activate(env, b, inv.token, o.phone, { install: false });
+    assert.equal((await b.get(`/api/reader/books/${bookId}/manifest`, { sign: true })).status, 200);
+    assert.equal((await b.get('/api/auth/session')).data.requireApp, false);
+  } finally {
+    await admin.request('PUT', '/api/admin/settings', { require_app_install: true });
+  }
+});
+
+test('iPhone hand-over: moving from the activation browser to the new app is allowed once and not counted', async () => {
+  await admin.request('PUT', '/api/admin/settings', { device_replacement_mode: 'ADMIN_APPROVAL', max_self_replacements_per_30d: 0 });
+  try {
+    const o = await createOrder(admin, bookId);
+    const inv = await invite(admin, o.licenseId);
+    const safari = new Browser(env.base, 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) Safari/604.1');
+    await activate(env, safari, inv.token, o.phone, { install: false });
+    // The home-screen app has its own storage: it signs in as a new device.
+    const app = new Browser(env.base, 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) Mobile/15E148');
+    await app.newDeviceKey();
+    await clearOtpCooldown(env);
+    const req = await app.post('/api/auth/request-otp', { phone: o.phone });
+    const v = await app.post('/api/auth/verify-otp', { challengeId: req.data.challengeId, code: lastOtp(env, o.phone), deviceKey: app.jwk });
+    assert.equal(v.data.code, 'DEVICE_LIMIT');
+    const rep = await app.post('/api/access/replace-device', { grantToken: v.data.grantToken, appInstall: true });
+    assert.equal(rep.status, 200, 'allowed even though moves need approval and the self-service limit is 0');
+    app.csrf = rep.data.csrf;
+    await installApp(app);
+    assert.equal((await app.get(`/api/reader/books/${bookId}/manifest`, { sign: true })).status, 200);
+    assert.equal((await safari.get('/api/reader/library', { sign: true })).data.code, 'DEVICE_REVOKED', 'the activation browser no longer has the book');
+    const { rows } = await env.ctx.pool.query(`SELECT mode FROM device_replacements WHERE customer_id=$1`, [o.customerId]);
+    assert.deepEqual(rows.map((r) => r.mode), ['APP_INSTALL']);
+
+    // A later claim of "app install" from yet another device is not free: the app already installed.
+    const other = new Browser(env.base);
+    await other.newDeviceKey();
+    await clearOtpCooldown(env);
+    const req2 = await other.post('/api/auth/request-otp', { phone: o.phone });
+    const v2 = await other.post('/api/auth/verify-otp', { challengeId: req2.data.challengeId, code: lastOtp(env, o.phone), deviceKey: other.jwk });
+    const rep2 = await other.post('/api/access/replace-device', { grantToken: v2.data.grantToken, appInstall: true });
+    assert.equal(rep2.status, 202, 'falls back to owner approval');
+  } finally {
+    await admin.request('PUT', '/api/admin/settings', { device_replacement_mode: 'SELF_SERVICE', max_self_replacements_per_30d: 2 });
+  }
 });

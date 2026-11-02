@@ -13,6 +13,7 @@ export const POLICY_SCHEMA = {
   max_self_replacements_per_30d: { type: 'int', min: 0, max: 20 },
   default_license_duration_days: { type: 'int', min: 1, max: 36500, nullable: true },
   content_requests_per_minute: { type: 'int', min: 20, max: 2000 },
+  require_app_install: { type: 'bool' },
 };
 
 export const WEBSITE_KEYS = ['site', 'whatsapp'];

@@ -34,6 +34,14 @@ What still cannot be prevented for PDFs: a phone camera pointed at the screen, t
 system's own screenshot on phones (Android/iOS do not let web pages block it), and screen recording
 software that does not take focus. The watermark is what makes these leaks traceable.
 
+## The "installed app only" rule
+
+Book content is served only to devices that have reported opening the installed app. That report
+comes from the app itself, so a technically capable buyer could fake it on their own registered
+device. It cannot be used to read on someone else's device: the device key, session and license
+checks still apply. The rule exists to keep reading inside the app (no browser tabs to share or
+save) and to expire the download page, not as a cryptographic guarantee.
+
 ## What is not protected
 
 **Screenshots, screen recording and photos.** Any page shown on screen can be captured. The

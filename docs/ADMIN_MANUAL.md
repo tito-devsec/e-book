@@ -107,3 +107,4 @@ The customer opens the link, confirms their number with a code, and starts readi
 | Self-service device moves per 30 days | 2 | After this, moves need your approval |
 | Default license duration | none | |
 | Reader requests per minute | 120 | Above this, reading pauses briefly and an alert is raised |
+| Reading only in the installed app | Yes | Customers must add the reader to their device before reading; the download page expires once it is installed |

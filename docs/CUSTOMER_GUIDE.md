@@ -7,11 +7,12 @@
 1. After your payment is confirmed, you receive a private link on WhatsApp.
 2. Open the link. Enter the WhatsApp number you ordered with and tap **Send my code**.
 3. A 6-digit code arrives on WhatsApp. Enter it and tap **Activate my book**.
-4. Your book page opens:
-   - **DOWNLOAD BOOK** installs the reader app on your phone or computer.
-   - **START READING** opens the book straight away (you'll be offered the app first).
+4. Your book page opens. Tap **DOWNLOAD BOOK** (or **START READING**) and add the reader to your
+   device. This step is required: the book opens only in the app.
+5. Open **My Books** from your home screen or app list. Your book opens straight away.
 
-The link works once, for you only. After activation, you don't need it again.
+The invitation link works once, for you only, and the download page expires as soon as the app is
+installed. The book cannot be shared.
 
 ## Reading
 

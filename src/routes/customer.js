@@ -75,8 +75,8 @@ export function customerRoutes({ access, cfg, rateLimiter, readerAuth, pool, set
   });
 
   r.post('/access/replace-device', limitVerify, async (req, res) => {
-    const b = validate(req.body, { grantToken: { type: 'string', required: true, max: 100 } });
-    const result = await access.replaceDevice({ grantToken: b.grantToken, ip: req.ip });
+    const b = validate(req.body, { grantToken: { type: 'string', required: true, max: 100 }, appInstall: { type: 'bool', default: false } });
+    const result = await access.replaceDevice({ grantToken: b.grantToken, appInstall: b.appInstall, ip: req.ip });
     if (result.status === 'PENDING_APPROVAL') return res.status(202).json({ status: 'PENDING_APPROVAL' });
     setSession(res, result.session);
     res.json({ status: 'REPLACED', csrf: result.session.csrf });
@@ -90,9 +90,12 @@ export function customerRoutes({ access, cfg, rateLimiter, readerAuth, pool, set
         .json({ authenticated: false, code: s.error });
     }
     const books = await access.libraryFor(s.session);
+    const policy = await settings.policy();
     res.json({
       authenticated: true,
       csrf: s.session.csrf_token,
+      device: { installed: Boolean(s.session.device_installed_at) },
+      requireApp: policy.require_app_install !== false,
       customer: { name: s.session.full_name },
       books: books.map((b) => ({ id: b.id, title: b.title, author: b.author })),
     });

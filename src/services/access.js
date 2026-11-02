@@ -390,7 +390,7 @@ export function createAccess({ pool, cfg, settings, events, otpDelivery, logger 
     return result;
   }
 
-  async function replaceDevice({ grantToken, ip }) {
+  async function replaceDevice({ grantToken, appInstall = false, ip }) {
     const policy = await settings.policy();
     return tx(pool, async (db) => {
       const { rows: [g] } = await db.query(
@@ -404,8 +404,19 @@ export function createAccess({ pool, cfg, settings, events, otpDelivery, logger 
       const { rows: [{ n: recent }] } = await db.query(
         `SELECT count(*)::int AS n FROM device_replacements WHERE customer_id=$1 AND mode='SELF_SERVICE' AND created_at > now() - interval '30 days'`,
         [g.customer_id]);
-      const selfService = policy.device_replacement_mode === 'SELF_SERVICE' && recent < policy.max_self_replacements_per_30d;
       const key = { jwk: g.public_key_jwk, thumbprint: g.key_thumbprint };
+      // Finishing setup: moving from the browser used for activation to the app just installed
+      // on the phone (iOS keeps the installed app's storage separate). Allowed without counting as
+      // a device change when every device being replaced never installed the app and is recent.
+      let appMove = false;
+      if (appInstall) {
+        const { rows: olds } = await db.query(
+          `SELECT d.installed_at, d.registered_at FROM device_authorizations da JOIN registered_devices d ON d.id=da.device_id
+            JOIN reading_licenses l ON l.id=da.license_id
+            WHERE l.customer_id=$1 AND da.status='ACTIVE' AND d.status='ACTIVE'`, [g.customer_id]);
+        appMove = olds.length > 0 && olds.every((o) => !o.installed_at && Date.now() - new Date(o.registered_at).getTime() < 7 * 86400000);
+      }
+      const selfService = appMove || (policy.device_replacement_mode === 'SELF_SERVICE' && recent < policy.max_self_replacements_per_30d);
 
       if (!selfService) {
         const existing = await findActiveDevice(db, g.customer_id, key.thumbprint);
@@ -442,8 +453,8 @@ export function createAccess({ pool, cfg, settings, events, otpDelivery, logger 
         }
         await endDeviceSessions(db, oldId, 'DEVICE_REPLACED');
         await db.query(
-          `INSERT INTO device_replacements (customer_id, old_device_id, new_device_id, mode, decided_at) VALUES ($1,$2,$3,'SELF_SERVICE', now())`,
-          [g.customer_id, oldId, device.id]);
+          `INSERT INTO device_replacements (customer_id, old_device_id, new_device_id, mode, decided_at) VALUES ($1,$2,$3,$4, now())`,
+          [g.customer_id, oldId, device.id, appMove ? 'APP_INSTALL' : 'SELF_SERVICE']);
       }
       await events.reading(db, { type: 'DEVICE_REPLACED', customerId: g.customer_id, deviceId: device.id, details: { previous: [...oldDevices] } });
       const session = await createSession(db, { customerId: g.customer_id, deviceId: device.id });
@@ -457,7 +468,7 @@ export function createAccess({ pool, cfg, settings, events, otpDelivery, logger 
   async function resolveSession(rawToken) {
     if (!rawToken || typeof rawToken !== 'string') return { error: 'NO_SESSION' };
     const { rows: [s] } = await pool.query(
-      `SELECT s.*, d.status AS device_status, d.public_key_jwk, d.transition_until, c.status AS customer_status,
+      `SELECT s.*, d.status AS device_status, d.public_key_jwk, d.transition_until, d.installed_at AS device_installed_at, c.status AS customer_status,
               c.full_name, c.phone_e164
          FROM reading_sessions s JOIN registered_devices d ON d.id=s.device_id JOIN customers c ON c.id=s.customer_id
         WHERE s.token_hash=$1`, [tokenHash(rawToken, 'session')]);

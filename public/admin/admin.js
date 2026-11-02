@@ -938,6 +938,7 @@ function devicesTable(rows) {
     { label: 'Device', render: (d) => h('div', {}, `${d.browser} on ${d.os}`, h('div', { class: 'sub', text: d.device_category })) },
     { label: 'Status', render: (d) => h('div', {}, badge(d.status), d.revoked_reason ? h('div', { class: 'sub', text: d.revoked_reason }) : null, d.transition_until ? h('div', { class: 'sub', text: `works until ${fmtDate(d.transition_until)}` }) : null) },
     { label: 'Registered', render: (d) => fmtDate(d.registered_at) },
+    { label: 'App installed', render: (d) => (d.installed_at ? fmtDate(d.installed_at) : h('span', { class: 'sub', text: 'Not yet' })) },
     { label: 'Last activity', render: (d) => fmtDate(d.last_seen_at) },
     { label: 'Sessions', render: (d) => String(d.active_sessions ?? 0) },
     { label: '', render: (d) => (can('access.manage') && ['ACTIVE', 'PENDING_APPROVAL'].includes(d.status)
@@ -962,7 +963,7 @@ async function viewDevices(q) {
     h('section', { class: 'card' }, h('h2', { text: 'Device replacement history' }), table([
       { label: 'Customer', key: 'full_name' }, { label: 'From', render: (r) => (r.old_browser ? `${r.old_browser} on ${r.old_os}` : '—') },
       { label: 'To', render: (r) => `${r.new_browser} on ${r.new_os}` }, { label: 'Decision', render: (r) => badge(r.mode) },
-      { label: 'By', render: (r) => r.decided_by_name || (r.mode === 'SELF_SERVICE' ? 'Customer (OTP verified)' : '—') }, { label: 'When', render: (r) => fmtDate(r.decided_at || r.created_at) },
+      { label: 'By', render: (r) => r.decided_by_name || (r.mode === 'SELF_SERVICE' ? 'Customer (OTP verified)' : r.mode === 'APP_INSTALL' ? 'Customer installed the app (not counted)' : '—') }, { label: 'When', render: (r) => fmtDate(r.decided_at || r.created_at) },
     ], reps.replacements, 'No replacements yet.')));
 }
 
@@ -1102,14 +1103,18 @@ const SETTING_LABELS = {
   max_self_replacements_per_30d: ['Self-service device moves allowed per 30 days', 'After this, requests need your approval'],
   default_license_duration_days: ['Default license duration (days)', 'Empty = no expiry'],
   content_requests_per_minute: ['Reader requests allowed per minute', 'Above this, requests are blocked and flagged'],
+  require_app_install: ['Reading only in the installed app', 'Customers must add the reader to their device before reading; the download page expires once installed'],
 };
 
 async function viewSettings() {
   const { settings, schema } = await api('GET', '/api/admin/settings');
-  const fields = Object.entries(schema).map(([k, s]) => (s.enum
+  const fields = Object.entries(schema).map(([k, s]) => (s.type === 'bool'
+    ? { name: k, label: SETTING_LABELS[k]?.[0] || k, type: 'select', options: [['true', 'Yes (recommended)'], ['false', 'No, allow reading in the browser']], hint: SETTING_LABELS[k]?.[1] }
+    : s.enum
     ? { name: k, label: SETTING_LABELS[k]?.[0] || k, type: 'select', options: s.enum.map((v) => [v, v === 'SELF_SERVICE' ? 'Customer can move it after verifying their number' : 'Requires my approval']), hint: SETTING_LABELS[k]?.[1] }
     : { name: k, label: SETTING_LABELS[k]?.[0] || k, type: 'number', min: s.min, maxv: s.max, nullable: s.nullable, hint: SETTING_LABELS[k]?.[1] }));
-  const f = buildForm(fields, settings, { submit: 'Save settings', onSubmit: (v) => act(() => api('PUT', '/api/admin/settings', v), { ok: 'Settings saved' }) });
+  const values = Object.fromEntries(Object.entries(settings).map(([k, v]) => [k, typeof v === 'boolean' ? String(v) : v]));
+  const f = buildForm(fields, values, { submit: 'Save settings', onSubmit: (v) => act(() => api('PUT', '/api/admin/settings', v), { ok: 'Settings saved' }) });
   page('System Settings', h('p', { class: 'hint', text: 'Access policy for invitations, verification codes, sessions and devices. Changes apply to new requests immediately.' }), h('section', { class: 'card' }, f.form));
 }
 

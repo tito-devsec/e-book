@@ -268,7 +268,7 @@ export function adminRoutes(ctx) {
            FROM reading_licenses l JOIN books b ON b.id=l.book_id JOIN orders o ON o.id=l.order_id WHERE l.customer_id=$1 ORDER BY l.created_at DESC`),
       q(`SELECT i.id, i.status, i.token_hint, i.expires_at, i.opened_at, i.consumed_at, i.created_at, i.license_id, b.title AS book_title
            FROM invitations i JOIN books b ON b.id=i.book_id WHERE i.customer_id=$1 ORDER BY i.created_at DESC`),
-      q(`SELECT d.id, d.browser, d.os, d.device_category, d.status, d.registered_at, d.last_seen_at, d.revoked_at, d.revoked_reason,
+      q(`SELECT d.id, d.browser, d.os, d.device_category, d.status, d.registered_at, d.last_seen_at, d.installed_at, d.revoked_at, d.revoked_reason,
                 (SELECT string_agg(b.title, ', ') FROM device_authorizations da JOIN reading_licenses l ON l.id=da.license_id JOIN books b ON b.id=l.book_id
                   WHERE da.device_id=d.id AND da.status='ACTIVE') AS books,
                 (SELECT count(*) FROM reading_sessions s WHERE s.device_id=d.id AND s.ended_at IS NULL AND s.expires_at > now())::int AS active_sessions
@@ -555,7 +555,7 @@ export function adminRoutes(ctx) {
     if (req.query.customerId) { vals.push(uuidParam(req.query.customerId)); where.push(`d.customer_id=$${vals.length}`); }
     const w = where.length ? `WHERE ${where.join(' AND ')}` : '';
     const { rows } = await pool.query(
-      `SELECT d.id, d.browser, d.os, d.device_category, d.status, d.registered_at, d.last_seen_at, d.revoked_at, d.revoked_reason, d.transition_until,
+      `SELECT d.id, d.browser, d.os, d.device_category, d.status, d.registered_at, d.last_seen_at, d.installed_at, d.revoked_at, d.revoked_reason, d.transition_until,
               c.id AS customer_id, c.full_name,
               (SELECT string_agg(b.title, ', ') FROM device_authorizations da JOIN reading_licenses l ON l.id=da.license_id JOIN books b ON b.id=l.book_id
                 WHERE da.device_id=d.id AND da.status='ACTIVE') AS books,

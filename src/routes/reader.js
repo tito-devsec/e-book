@@ -1,10 +1,10 @@
 // Reader API. Every route requires a live session, a valid device signature, and an
 // active license for the requested book on this device. Responses are never cacheable.
 import express from 'express';
-import { validate, notFound, uuidParam } from '../lib/http.js';
+import { validate, notFound, uuidParam, HttpError } from '../lib/http.js';
 import { watermarkPage, traceCode, maskedPhone } from '../services/watermark.js';
 
-export function readerRoutes({ pool, access, ingest, events, readerAuth, storage, cfg }) {
+export function readerRoutes({ pool, access, ingest, events, readerAuth, storage, cfg, settings }) {
   const r = express.Router();
   r.use((req, res, next) => { res.set('Cache-Control', 'no-store, private'); res.set('Pragma', 'no-cache'); next(); });
   r.use(readerAuth.sessionOnly(), readerAuth.signed());
@@ -14,6 +14,22 @@ export function readerRoutes({ pool, access, ingest, events, readerAuth, storage
       `SELECT e.* FROM books b JOIN book_editions e ON e.id=b.current_edition_id WHERE b.id=$1 AND e.status='READY'`, [bookId]);
     return e;
   }
+
+  // Book content is only served to the installed app (unless the owner turned this off).
+  async function requireInstalled(req) {
+    const policy = await settings.policy();
+    if (policy.require_app_install !== false && !req.reader.device_installed_at) {
+      throw new HttpError(403, 'APP_INSTALL_REQUIRED', 'Add the book to your device to start reading.');
+    }
+  }
+
+  // Called by the installed app the first time it opens on this device. From then on the
+  // download page for this device is expired and reading happens only in the app.
+  r.post('/app-installed', async (req, res) => {
+    const { rowCount } = await pool.query('UPDATE registered_devices SET installed_at=now() WHERE id=$1 AND installed_at IS NULL', [req.reader.device_id]);
+    if (rowCount) await events.reading(null, { type: 'APP_INSTALLED', customerId: req.reader.customer_id, deviceId: req.reader.device_id });
+    res.json({ ok: true });
+  });
 
   r.get('/library', async (req, res) => {
     const books = await access.libraryFor(req.reader);
@@ -36,6 +52,7 @@ export function readerRoutes({ pool, access, ingest, events, readerAuth, storage
       book: { id: b.id, title: b.title, subtitle: b.subtitle, author: b.author, description: b.description, hasCover: b.has_cover },
       access: { status: 'ACTIVE', activatedAt: lic.activated_at, expiresAt: lic.expires_at },
       preparation: e ? 'READY' : 'PREPARING',
+      installedOnThisDevice: Boolean(req.reader.device_installed_at),
     });
   });
 
@@ -50,6 +67,7 @@ export function readerRoutes({ pool, access, ingest, events, readerAuth, storage
   r.get('/books/:bookId/manifest', async (req, res) => {
     const bookId = uuidParam(req.params.bookId);
     await access.requireBookAccess(req.reader, bookId, req.ip);
+    await requireInstalled(req);
     const e = await currentEdition(bookId);
     if (!e) return res.status(409).json({ code: 'NOT_READY', message: 'This book is being prepared. Please check back shortly.' });
     const { rows } = await pool.query(
@@ -71,6 +89,7 @@ export function readerRoutes({ pool, access, ingest, events, readerAuth, storage
     const bookId = uuidParam(req.params.bookId);
     const resourceId = uuidParam(req.params.resourceId);
     const lic = await access.requireBookAccess(req.reader, bookId, req.ip);
+    await requireInstalled(req);
     const e = await currentEdition(bookId);
     if (!e) throw notFound();
     // Extracted page text is only used by server-side search; it is never handed out whole.
@@ -99,6 +118,7 @@ export function readerRoutes({ pool, access, ingest, events, readerAuth, storage
     const q = String(req.query.q || '').trim();
     if (q.length < 2 || q.length > 100) return res.json({ results: [] });
     await access.requireBookAccess(req.reader, bookId, req.ip);
+    await requireInstalled(req);
     const e = await currentEdition(bookId);
     if (!e) return res.json({ results: [], supported: false });
     const { rows } = await pool.query(`SELECT * FROM book_assets WHERE edition_id=$1 AND kind=$2 ORDER BY ordinal`, [e.id, e.format === 'PDF' ? 'PAGE_TEXT' : 'CHAPTER']);
