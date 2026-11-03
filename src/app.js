@@ -1,6 +1,7 @@
 import express from 'express';
 import path from 'node:path';
 import fs from 'node:fs/promises';
+import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import multer from 'multer';
 import { HttpError } from './lib/http.js';
@@ -151,10 +152,19 @@ export function createApp(ctx) {
     res.set('Cache-Control', 'no-store');
     res.type('application/manifest+json').send(JSON.stringify(m));
   });
-  readerPages.get('/sw.js', (req, res) => {
+  let swSource = null;
+  readerPages.get('/sw.js', async (req, res) => {
+    if (!swSource) {
+      const [sw, appJs] = await Promise.all([
+        fs.readFile(path.join(PUBLIC_DIR, 'reader', 'sw.js'), 'utf8'),
+        fs.readFile(path.join(PUBLIC_DIR, 'reader', 'app.js')),
+      ]);
+      const stamp = crypto.createHash('sha256').update(appJs).digest('hex').slice(0, 12);
+      swSource = sw.replace("const VERSION = 'reader-shell-v4';", `const VERSION = 'reader-shell-${stamp}';`);
+    }
     res.set('Cache-Control', 'no-cache');
     res.set('Service-Worker-Allowed', '/');
-    res.type('application/javascript').sendFile(path.join(PUBLIC_DIR, 'reader', 'sw.js'));
+    res.type('application/javascript').send(swSource);
   });
   // The customer site's home page is the single-screen book download page.
   readerPages.get('/', readerShell);

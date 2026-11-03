@@ -55,16 +55,20 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Static shell assets: cache first, refreshed in the background.
+  // Static shell assets: network first so a new release is picked up on the next open; the
+  // cached copy is only used when the network fails.
   if (SHELL.includes(url.pathname) || url.pathname.startsWith('/static/') || url.pathname.startsWith('/assets/')) {
     event.respondWith(
       caches.open(VERSION).then(async (cache) => {
-        const hit = await cache.match(req);
-        const network = fetch(req).then((res) => {
+        try {
+          const res = await fetch(req);
           if (res.ok && res.type === 'basic') cache.put(req, res.clone());
           return res;
-        }).catch(() => hit);
-        return hit || network;
+        } catch (e) {
+          const hit = await cache.match(req);
+          if (hit) return hit;
+          throw e;
+        }
       }),
     );
   }
