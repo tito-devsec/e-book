@@ -25,6 +25,19 @@ function h(tag, attrs = {}, ...children) {
 }
 const root = document.getElementById('root');
 function mount(...nodes) { cleanupView(); root.replaceChildren(...nodes); }
+
+// A crash must never leave the loading spinner on screen: show what went wrong instead.
+function showCrash(err) {
+  if (!root.querySelector('.spinner')) return;
+  const msg = (err && (err.stack || err.message)) ? String(err.stack || err.message) : String(err);
+  root.replaceChildren(h('main', { class: 'screen' }, h('div', { class: 'panel' },
+    h('h1', { text: 'Something went wrong' }),
+    h('p', { class: 'muted', text: 'Please send this message to the book owner:' }),
+    h('pre', { class: 'details', text: `${navigator.userAgent}\n${msg}`.slice(0, 1500) }),
+    h('button', { class: 'btn btn-primary btn-block', onclick: () => location.reload() }, 'Try again'))));
+}
+addEventListener('error', (e) => showCrash(e.error || e.message));
+addEventListener('unhandledrejection', (e) => showCrash(e.reason));
 let viewCleanup = [];
 function onCleanup(fn) { viewCleanup.push(fn); }
 function cleanupView() { for (const fn of viewCleanup.splice(0)) { try { fn(); } catch { /* ignore */ } } }
@@ -310,10 +323,10 @@ async function tryClaim(claim) {
 // Invitation activation  (/access/:token)
 // ===========================================================================
 async function viewInvitation(tokenInPath) {
-  // Move the token out of the address bar and history immediately; keep it only for this tab.
+  // The link keeps its address. iPhone reloads pages freely (returning from WhatsApp, adding to
+  // the home screen), and a reload must land on the same link page with the app code in it.
   let token = tokenInPath;
-  if (tokenInPath === '_') token = sessionStorage.getItem('invite') || '';
-  else { sessionStorage.setItem('invite', tokenInPath); history.replaceState({}, '', '/access/_'); }
+  if (tokenInPath === '_') { try { token = sessionStorage.getItem('invite') || ''; } catch { token = ''; } }
   if (!token) return isStandalone() ? go('/app', true) : viewNoAccess('invalid');
 
   mount(h('div', { class: 'boot' }, h('div', { class: 'spinner', 'aria-label': 'Preparing your book' })));
@@ -325,7 +338,7 @@ async function viewInvitation(tokenInPath) {
     if (info.state === 'VALID') claim = CLAIM_RE.test(inPage || '') ? inPage : (await api('POST', '/api/access/prepare-app', { token })).claim;
   } catch (err) { return viewOffline(err); }
   if (info.state !== 'VALID') {
-    sessionStorage.removeItem('invite');
+    try { sessionStorage.removeItem('invite'); } catch { /* ignore */ }
     // The book is already on this device: open it instead of showing a used-link message.
     if (isStandalone()) return go('/app', true);
     let s = null;
@@ -1233,4 +1246,4 @@ class Reader {
 // Boot
 // ===========================================================================
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(() => {});
-route();
+Promise.resolve().then(route).catch(showCrash);
