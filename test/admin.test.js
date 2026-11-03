@@ -371,3 +371,27 @@ test('PDF font folders end with a forward slash on every operating system (Windo
   assert.equal(factoryUrl('C:\\x\\cmaps\\'), 'C:/x/cmaps/');
   assert.equal(factoryUrl('/opt/app/cmaps/'), '/opt/app/cmaps/');
 });
+
+test('quick link: a name alone creates the customer, a paid order, the licence and the private link', async () => {
+  const r = await owner.post('/api/admin/quick-link', { fullName: 'Quick Person' });
+  assert.equal(r.status, 201, JSON.stringify(r.data));
+  assert.match(r.data.link, /\/access\/[A-Za-z0-9_-]{43}$/);
+  assert.ok(r.data.message.includes(r.data.link));
+  const { rows: [c] } = await env.ctx.pool.query(`SELECT * FROM customers WHERE id=$1`, [r.data.customerId]);
+  assert.equal(c.full_name, 'Quick Person');
+  assert.equal(c.status, 'INVITED', 'paid and already sent a link');
+  const { rows: [o] } = await env.ctx.pool.query(`SELECT status FROM orders WHERE id=$1`, [r.data.orderId]);
+  assert.equal(o.status, 'PAID');
+  const { rows: [l] } = await env.ctx.pool.query(`SELECT status FROM reading_licenses WHERE id=$1`, [r.data.licenseId]);
+  assert.equal(l.status, 'PENDING_ACTIVATION');
+  // Two customers with no number do not collide; a given number is reused.
+  assert.equal((await owner.post('/api/admin/quick-link', { fullName: 'Another Person' })).status, 201);
+  const a = await owner.post('/api/admin/quick-link', { fullName: 'Phone Person', phone: '0712000111' });
+  const b = await owner.post('/api/admin/quick-link', { fullName: 'Phone Person', phone: '+255712000111' });
+  assert.equal(a.data.customerId, b.data.customerId, 'same number = same customer');
+  assert.equal((await owner.post('/api/admin/quick-link', { fullName: '   ' })).status, 400);
+  // The link works like any other.
+  const reader = new Browser(env.base);
+  await activate(env, reader, r.data.link.split('/access/')[1]);
+  assert.equal((await reader.get('/api/reader/library', { sign: true })).status, 200);
+});

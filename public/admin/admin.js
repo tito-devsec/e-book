@@ -77,6 +77,8 @@ function table(columns, rows, empty = 'Nothing here yet.') {
     h('tbody', {}, rows.map((r) => h('tr', {}, columns.map((c) => h('td', {}, c.render ? c.render(r) : (r[c.key] ?? '—'))))))));
 }
 
+// Customers added by name only carry a placeholder number; show nothing for it.
+const showPhone = (p) => (!p || String(p).startsWith('+000') ? '' : p);
 const btn = (label, onclick, cls = 'btn btn-small') => h('button', { class: cls, type: 'button', onclick }, label);
 const link = (href, text) => h('a', { href, 'data-nav': true, text });
 
@@ -413,27 +415,32 @@ function filterBar(q, defs) {
 async function viewCustomers(q) {
   const d = await api('GET', `/api/admin/customers?${q}`);
   page('Customers',
-    can('customers.manage') ? h('p', {}, link('/admin/orders/new', '+ Register a customer and order')) : null,
+    can('customers.manage') && can('invitations.manage') ? quickLinkBox() : null,
+    can('customers.manage') ? h('p', {}, link('/admin/orders/new', 'Full order form (amount, payment details)')) : null,
     filterBar(q, [
       { name: 'q', label: 'Search name, phone or email' },
       { name: 'status', label: 'All statuses', options: CUSTOMER_STATUSES.map((s) => [s, s.replace(/_/g, ' ')]) },
       { name: 'sort', label: 'Sort: newest', options: [['name', 'Sort: name'], ['status', 'Sort: status'], ['created', 'Sort: created']] },
       { name: 'dir', label: 'Direction', options: [['asc', 'Ascending'], ['desc', 'Descending']] },
     ]),
-    table([
-      { label: 'Customer', render: (c) => h('div', {}, link(`/admin/customers/${c.id}`, c.full_name), h('div', { class: 'sub', text: c.email || '' })) },
-      { label: 'WhatsApp', key: 'phone_e164' },
-      { label: 'Status', render: (c) => badge(c.status) },
-      { label: 'Orders', key: 'orders' },
-      { label: 'Active licenses', key: 'active_licenses' },
-      { label: 'Registered', render: (c) => fmtDate(c.created_at) },
-    ], d.customers, 'No customers match.'),
+    customersTable(d.customers),
     pager(d, (p) => setQuery({ page: p })));
+}
+
+function customersTable(rows) {
+  return table([
+    { label: 'Customer', render: (c) => h('div', {}, link(`/admin/customers/${c.id}`, c.full_name), h('div', { class: 'sub', text: c.email || '' })) },
+    { label: 'WhatsApp', render: (c) => showPhone(c.phone_e164) || '—' },
+    { label: 'Status', render: (c) => badge(c.status) },
+    { label: 'Orders', key: 'orders' },
+    { label: 'Active licenses', key: 'active_licenses' },
+    { label: 'Registered', render: (c) => fmtDate(c.created_at) },
+  ], rows, 'No customers match.');
 }
 
 function invitationsTable(rows) {
   return table([
-    { label: 'Customer', render: (i) => h('div', {}, link(`/admin/customers/${i.customer_id}`, i.full_name), h('div', { class: 'sub', text: i.phone_e164 || '' })) },
+    { label: 'Customer', render: (i) => h('div', {}, link(`/admin/customers/${i.customer_id}`, i.full_name), h('div', { class: 'sub', text: showPhone(i.phone_e164) })) },
     { label: 'Book', key: 'book_title' },
     { label: 'Link', render: (i) => h('span', { class: 'mono', text: `…/access/${i.token_hint}…` }) },
     { label: 'Status', render: (i) => badge(i.status) },
@@ -487,12 +494,12 @@ async function viewCustomer(id) {
   const edit = can('customers.manage') ? buildForm([
     { name: 'fullName', label: 'Full name', required: true }, { name: 'phone', label: 'WhatsApp number', required: true, hint: 'Changing it cancels pending invitations' },
     { name: 'email', label: 'Email (optional)', type: 'email', nullable: true }, { name: 'notes', label: 'Internal notes', type: 'textarea', full: true },
-  ], { fullName: c.full_name, phone: c.phone_e164, email: c.email, notes: c.notes }, { submit: 'Save customer', onSubmit: (v) => act(() => api('PATCH', `/api/admin/customers/${id}`, v), { ok: 'Saved' }) }).form : null;
+  ], { fullName: c.full_name, phone: showPhone(c.phone_e164), email: c.email, notes: c.notes }, { submit: 'Save customer', onSubmit: (v) => act(() => api('PATCH', `/api/admin/customers/${id}`, v), { ok: 'Saved' }) }).form : null;
 
   page(c.full_name,
     h('p', {}, link('/admin/customers', '← All customers')),
     h('section', { class: 'card' },
-      h('dl', { class: 'kv' }, h('dt', { text: 'Status' }), h('dd', {}, badge(c.status)), h('dt', { text: 'WhatsApp' }), h('dd', { text: c.phone_e164 }),
+      h('dl', { class: 'kv' }, h('dt', { text: 'Status' }), h('dd', {}, badge(c.status)), h('dt', { text: 'WhatsApp' }), h('dd', { text: showPhone(c.phone_e164) || '—' }),
         h('dt', { text: 'Email' }), h('dd', { text: c.email || '—' }), h('dt', { text: 'Registered' }), h('dd', { text: fmtDate(c.created_at) })),
       mng ? h('div', { class: 'row-actions' },
         c.status === 'SUSPENDED'
@@ -521,6 +528,34 @@ async function viewCustomer(id) {
 // ===========================================================================
 // Orders and payments
 // ===========================================================================
+/** Name in, link out: the usual way to add a customer. */
+function quickLinkBox() {
+  const name = h('input', { type: 'text', name: 'fullName', placeholder: 'Customer name', required: true, maxlength: 200, autocomplete: 'off', 'aria-label': 'Customer name' });
+  const phone = h('input', { type: 'tel', name: 'phone', placeholder: 'WhatsApp number (optional)', maxlength: 32, autocomplete: 'off', 'aria-label': 'WhatsApp number' });
+  const submit = h('button', { class: 'btn btn-primary', type: 'submit' }, 'Generate link');
+  const out = h('div', { class: 'quick-out' });
+  const form = h('form', { class: 'quick' }, name, phone, submit);
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    submit.disabled = true;
+    try {
+      const r = await api('POST', '/api/admin/quick-link', { fullName: name.value.trim(), phone: phone.value.trim() || undefined });
+      const copy = async (text, label) => { try { await navigator.clipboard.writeText(text); toast(`${label} copied`); } catch { toast('Copy failed, select and copy manually', true); } };
+      const linkEl = h('input', { type: 'text', readonly: true, value: r.link, 'aria-label': 'Private link' });
+      out.replaceChildren(h('div', { class: 'card quick-result' },
+        h('p', {}, h('strong', { text: name.value.trim() }), ' is added. Send this private link on WhatsApp:'),
+        h('div', { class: 'row-actions' }, linkEl, btn('Copy link', () => copy(r.link, 'Link'), 'btn btn-primary btn-small'), btn('Copy message', () => copy(r.message, 'Message'), 'btn btn-small')),
+        h('p', { class: 'hint', text: 'The link works once: it is used up when the book is added to their phone. ' + (r.invitation?.expires_at ? `Valid until ${fmtDate(r.invitation.expires_at)}.` : '') })));
+      linkEl.select();
+      name.value = ''; phone.value = '';
+      // Show the new customer in the list below without losing the link box.
+      const fresh = await api('GET', `/api/admin/customers${location.search || '?'}`);
+      document.querySelector('.content table')?.replaceWith(customersTable(fresh.customers));
+    } catch (err) { toast(err.message, true); } finally { submit.disabled = false; }
+  });
+  return h('section', { class: 'card' }, h('h2', { text: 'Add a customer and get their link' }), form, out);
+}
+
 async function viewNewOrder() {
   const { books } = await api('GET', '/api/admin/books-options');
   const fields = [
@@ -572,7 +607,7 @@ async function viewOrder(id) {
     h('p', {}, link('/admin/customers', '← Customers')),
     h('section', { class: 'card' }, h('dl', { class: 'kv' },
       h('dt', { text: 'Status' }), h('dd', {}, badge(o.status)),
-      h('dt', { text: 'Customer' }), h('dd', {}, link(`/admin/customers/${o.customer_id}`, o.full_name), ` · ${o.phone_e164}`),
+      h('dt', { text: 'Customer' }), h('dd', {}, link(`/admin/customers/${o.customer_id}`, o.full_name), showPhone(o.phone_e164) ? ` · ${o.phone_e164}` : ''),
       h('dt', { text: 'Books' }), h('dd', { text: d.items.map((i) => i.title).join(', ') }),
       h('dt', { text: 'Total' }), h('dd', { text: fmtMoney(o.total_amount, o.currency) }),
       h('dt', { text: 'Notes' }), h('dd', { text: o.notes || '—' }))),

@@ -447,6 +447,52 @@ export function adminRoutes(ctx) {
     res.status(201).json(result);
   });
 
+  // Quick add: the customer's name only. Payment is taken as verified (the owner sells outside
+  // the system), the order and licence are created, and the private link is issued at once.
+  r.post('/quick-link', can('customers.manage', 'payments.verify', 'invitations.manage'), async (req, res) => {
+    const b = validate(req.body, {
+      fullName: { type: 'string', required: true, max: 200 },
+      phone: { type: 'string', max: 32 },
+      bookId: { type: 'uuid' },
+    });
+    const name = b.fullName.trim();
+    if (!name) throw badRequest('Enter the customer name');
+    const result = await tx(pool, async (db) => {
+      const { rows: [book] } = b.bookId
+        ? await db.query('SELECT * FROM books WHERE id=$1', [b.bookId])
+        : await db.query('SELECT * FROM books WHERE published ORDER BY created_at LIMIT 1');
+      if (!book) throw badRequest('There is no published book yet');
+      let phone = b.phone ? normalizePhone(b.phone, process.env.DEFAULT_COUNTRY_CODE || '255') : '';
+      if (b.phone && !phone) throw badRequest('Enter the WhatsApp number in international format, e.g. +255712345678');
+      let customerId = null;
+      if (phone) {
+        const { rows: [existing] } = await db.query('SELECT id FROM customers WHERE phone_e164=$1', [phone]);
+        if (existing) customerId = existing.id;
+      } else {
+        // No number given: a unique placeholder keeps each customer separate.
+        phone = `+000${Date.now().toString().slice(-9)}${crypto.randomInt(10, 99)}`;
+      }
+      if (!customerId) {
+        const { rows: [c] } = await db.query(
+          `INSERT INTO customers (full_name, phone_e164, notes) VALUES ($1,$2,$3) RETURNING id`, [name, phone, b.phone ? '' : 'Added by name only']);
+        customerId = c.id;
+        await audit(db, req, 'customer.create', 'customer', c.id, { fullName: name, quick: true });
+      }
+      const reference = `ORD-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
+      const { rows: [o] } = await db.query(
+        `INSERT INTO orders (customer_id, reference, total_amount, currency, notes, created_by) VALUES ($1,$2,$3,$4,'',$5) RETURNING *`,
+        [customerId, reference, book.price_amount, book.currency, req.admin.id]);
+      await db.query('INSERT INTO order_items (order_id, book_id, unit_price) VALUES ($1,$2,$3)', [o.id, book.id, book.price_amount]);
+      await db.query(`INSERT INTO payments (order_id, amount, currency, method, reference) VALUES ($1,$2,$3,'Confirmed by owner',$4)`,
+        [o.id, book.price_amount, book.currency, `QUICK-${reference}`]);
+      await audit(db, req, 'order.create', 'order', o.id, { reference, amount: book.price_amount, currency: book.currency, books: [book.id], quick: true });
+      const { licenses } = await verifyPaymentTx(db, req, o.id, undefined);
+      return { customerId, orderId: o.id, licenseId: licenses[0] };
+    });
+    const inv = await access.createInvitation({ licenseId: result.licenseId, adminId: req.admin.id, ip: req.ip });
+    res.status(201).json({ ...result, ...inv });
+  });
+
   r.get('/orders', can('customers.view'), async (req, res) => {
     const { limit, offset, page } = pageParams(req.query);
     const where = []; const vals = [];
