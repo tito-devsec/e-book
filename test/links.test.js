@@ -87,3 +87,21 @@ test('iPhone: the link page itself carries the app start address, so the added i
   assert.doesNotMatch(bad, /app-claim/);
   assert.match(bad, /<link rel="manifest" href="\/manifest\.webmanifest">/);
 });
+
+test('a browser tab at the app start address: the link is unused until the added app opens', async () => {
+  const o = await createOrder(admin, bookId);
+  const inv = await invite(admin, o.licenseId);
+  const b = new Browser(env.base);
+  await b.newDeviceKey();
+  const { claim } = (await b.post('/api/access/prepare-app', { token: inv.token })).data;
+  // Reload / shared preview of /app?claim=...: the page can still show the download page.
+  let st = await b.post('/api/access/claim-status', { claim });
+  assert.equal(st.data.state, 'VALID');
+  assert.equal(st.data.book.title, 'Test Book');
+  assert.ok(!JSON.stringify(st.data).includes(inv.token));
+  // After the added app opened, the same address no longer offers the download page.
+  assert.equal((await b.post('/api/access/claim', { claim, deviceKey: b.jwk })).status, 200);
+  st = await b.post('/api/access/claim-status', { claim });
+  assert.equal(st.data.state, 'CONSUMED');
+  assert.equal((await b.post('/api/access/claim-status', { claim: 'x'.repeat(43) })).data.state, 'INVALID');
+});

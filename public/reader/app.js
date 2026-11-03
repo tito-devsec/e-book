@@ -160,20 +160,10 @@ function route() {
   const { pathname, search } = location;
   const q = new URLSearchParams(search);
   let m;
-  if (pathname !== '/app') firstRoute = false;
   if (pathname === '/') return viewHome();
   if ((m = pathname.match(/^\/access\/([^/]+)$/))) return viewInvitation(m[1]);
   if (pathname === '/login') return isStandalone() ? viewLauncher({ recover: true }) : viewNoAccess('app');
-  if (pathname === '/app') {
-    const start = firstRoute; firstRoute = false;
-    let downloadTab = false;
-    try { downloadTab = sessionStorage.getItem('invite:claim') === q.get('claim'); } catch { /* ignore */ }
-    // Refreshing the download page (its address is the app's start address): show it again.
-    if (start && downloadTab && navType !== 'navigate' && !isStandalone()) return viewInvitation('_');
-    // Opened from the home screen.
-    if (start) { try { sessionStorage.setItem('inApp', '1'); } catch { /* ignore */ } }
-    return viewLauncher();
-  }
+  if (pathname === '/app') return viewLauncher();
   if (pathname === '/library') return viewLibrary();
   if ((m = pathname.match(/^\/book\/([0-9a-f-]{36})$/))) return viewBook(m[1]);
   if ((m = pathname.match(/^\/read\/([0-9a-f-]{36})$/))) return viewReader(m[1]);
@@ -181,15 +171,8 @@ function route() {
   return viewDenied(q.get('reason'));
 }
 
-// The app is "open" when it runs from the home screen: as an installed app (standalone), or as a
-// home-screen shortcut that some phones and browsers open in a normal tab. A shortcut starts at
-// /app, so a fresh start at /app marks this tab as the app (see route()).
-const isStandalone = () => {
-  if (matchMedia('(display-mode: standalone)').matches || navigator.standalone === true) return true;
-  try { return sessionStorage.getItem('inApp') === '1'; } catch { return false; }
-};
-const navType = (() => { try { return performance.getEntriesByType('navigation')[0]?.type || 'navigate'; } catch { return 'navigate'; } })();
-let firstRoute = true;
+// The app is "open" when it runs from the home screen as an installed app (standalone mode).
+const isStandalone = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
 
 // ===========================================================================
 // Add to your device (PWA)
@@ -356,12 +339,13 @@ async function viewInvitation(tokenInPath) {
   if (manifest) manifest.href = `/manifest.webmanifest?claim=${claim}`;
   claims.set('pending', claim);
   if (isStandalone()) return go('/app', true);
-  // Show the page at the app's start address: "Add to Home Screen" from the browser menu (and on
-  // iPhone) then makes an icon that opens the app with this link's code, not this page.
-  try { sessionStorage.setItem('invite:claim', claim); } catch { /* ignore */ }
-  history.replaceState({}, '', `/app?claim=${claim}`);
-  if (platform() === 'ios') return viewAddToIphone(info.book);
-  return viewLinkDownload(info.book);
+  return showDownload(info.book);
+}
+
+/** The download page for a valid link: Android and computers get the add button, iPhone the guide. */
+function showDownload(book) {
+  if (platform() === 'ios') return viewAddToIphone(book);
+  return viewLinkDownload(book);
 }
 
 /** Download page behind the private link (Android, computers). */
@@ -453,10 +437,23 @@ async function viewNoAccess(kind) {
 async function viewLauncher({ recover = false } = {}) {
   // The added app starts with the code from the link it was added with (see viewInvitation).
   const fromStart = new URLSearchParams(location.search).get('claim');
-  if (location.pathname !== '/app' || location.search) history.replaceState({}, '', '/app');
   const standalone = isStandalone();
-  if (standalone && CLAIM_RE.test(fromStart || '')) claims.set('app', fromStart);
   mount(h('div', { class: 'boot' }, h('div', { class: 'spinner', 'aria-label': 'Opening your book' })));
+  if (!standalone && CLAIM_RE.test(fromStart || '')) {
+    // A normal browser tab at the app's start address (reload, a shared preview, or a home-screen
+    // shortcut that opens in the browser). While the link is unused, show the download page so the
+    // book can be added; the book itself opens only in the added app.
+    let st;
+    try { st = await api('POST', '/api/access/claim-status', { claim: fromStart }); } catch (err) { return viewOffline(err); }
+    if (st.state === 'VALID') {
+      const manifest = document.querySelector('link[rel="manifest"]');
+      if (manifest) manifest.href = `/manifest.webmanifest?claim=${fromStart}`;
+      claims.set('pending', fromStart);
+      return showDownload(st.book);
+    }
+  }
+  if (location.pathname !== '/app' || location.search) history.replaceState({}, '', '/app');
+  if (standalone && CLAIM_RE.test(fromStart || '')) claims.set('app', fromStart);
   let s;
   try { s = await loadSession(); } catch (err) { return viewOffline(err); }
   if (!s.authenticated && ['DEVICE_REVOKED', 'ACCOUNT_SUSPENDED'].includes(s.code)) return handleAuthError(new ApiError(403, { code: s.code }));
@@ -468,7 +465,7 @@ async function viewLauncher({ recover = false } = {}) {
   let retried = false;
   try { retried = Date.now() - Number(sessionStorage.getItem('recovered') || 0) < 30000; } catch { /* ignore */ }
   const done = claims.done();
-  const queue = [...new Set([CLAIM_RE.test(fromStart || '') ? fromStart : null, pending, s.authenticated || retried ? null : own])]
+  const queue = [...new Set([standalone && CLAIM_RE.test(fromStart || '') ? fromStart : null, pending, s.authenticated || retried ? null : own])]
     .filter((c) => c && !(s.authenticated && done.has(c)));
   let opened = null; let refused = false;
   for (const c of queue) {

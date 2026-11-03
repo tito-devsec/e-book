@@ -1,5 +1,6 @@
 // Customer access lifecycle: private links, claiming a link from the added app, device
 // registration, reading sessions, and license checks.
+const CLAIM_RE = /^[A-Za-z0-9_-]{43}$/;
 import { tx } from '../db.js';
 import { randomToken, keyedHash, importDevicePublicKey, jwkThumbprint } from '../lib/crypto.js';
 import { badRequest, notFound } from '../lib/http.js';
@@ -200,6 +201,19 @@ export function createAccess({ pool, cfg, settings, events }) {
     return { session, bookId: inv.book_id };
   }
 
+  /** Is the link behind this app code still unused (so the download page should show)? */
+  async function claimStatus(claim) {
+    if (!CLAIM_RE.test(String(claim || ''))) return { state: 'INVALID' };
+    const { rows: [c] } = await pool.query(
+      `SELECT c.used_at, c.expires_at, i.status, i.expires_at AS inv_expires, i.book_id FROM invitation_claims c JOIN invitations i ON i.id=c.invitation_id WHERE c.token_hash=$1`,
+      [tokenHash(claim, 'claim')]);
+    if (!c) return { state: 'INVALID' };
+    if (c.status === 'CONSUMED' || c.used_at) return { state: 'CONSUMED' };
+    if (c.status !== 'PENDING' || new Date(c.inv_expires) <= new Date()) return { state: 'EXPIRED' };
+    const { rows: [book] } = await pool.query('SELECT id, title, author, subtitle, description, cover_storage_key, published FROM books WHERE id=$1', [c.book_id]);
+    return { state: 'VALID', book: { id: book.id, title: book.title, author: book.author, subtitle: book.subtitle, description: book.description, hasCover: Boolean(book.cover_storage_key && book.published) } };
+  }
+
   async function claimLink({ claim, deviceKey, userAgent, ip }) {
     const key = parseDeviceKey(deviceKey);
     const result = await tx(pool, async (db) => {
@@ -354,7 +368,7 @@ export function createAccess({ pool, cfg, settings, events }) {
   }
 
   return {
-    createInvitation, validateInvitation, prepareApp, claimLink,
+    createInvitation, validateInvitation, prepareApp, claimStatus, claimLink,
     resolveSession, logout, libraryFor, requireBookAccess, endDeviceSessions, authorize,
     tokenHash, SESSION_COOKIE,
   };

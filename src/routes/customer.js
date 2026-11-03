@@ -43,6 +43,12 @@ export function customerRoutes({ access, cfg, rateLimiter, readerAuth, pool, set
     res.json({ claim: await access.prepareApp(token, req.ip) });
   });
 
+  // A browser tab at the app's start address asks whether the link is still unused.
+  r.post('/access/claim-status', limitAccess, async (req, res) => {
+    const { claim } = validate(req.body, { claim: { type: 'string', required: true, max: 100 } });
+    res.json(await access.claimStatus(claim));
+  });
+
   // First open of the added app: uses up the link, registers this device and signs it in.
   r.post('/access/claim', limitVerify, async (req, res) => {
     const b = validate(req.body, { claim: { type: 'string', required: true, max: 100 }, deviceKey: { type: 'object', required: true } });
