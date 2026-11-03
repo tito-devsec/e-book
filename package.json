@@ -15,6 +15,7 @@
     "migrate": "node --env-file-if-exists=.env scripts/migrate.js",
     "admin:create": "node --env-file-if-exists=.env scripts/create-admin.js",
     "seed:dev": "node --env-file-if-exists=.env scripts/seed-dev.js",
+    "load-book": "node --env-file-if-exists=.env scripts/load-book.js",
     "reset:data": "node --env-file-if-exists=.env scripts/reset-data.js",
     "test": "node --test --test-concurrency=1 \"test/*.test.js\"",
     "audit": "npm audit --omit=dev"

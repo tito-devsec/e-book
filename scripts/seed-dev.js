@@ -10,6 +10,7 @@ import { createContext } from '../src/app.js';
 import { runMigrations } from '../src/migrate.js';
 import { hashPassword } from '../src/lib/crypto.js';
 import { loadBundledBook } from '../src/services/bundledBook.js';
+import { ensureBook, setOwnerContact } from '../src/services/bookSetup.js';
 
 const cfg = loadConfig();
 if (cfg.isProd) {
@@ -48,19 +49,7 @@ try {
      VALUES ($1,'Book Owner',$2,(SELECT id FROM roles WHERE name='OWNER')) ON CONFLICT DO NOTHING`,
     [email, await hashPassword(password)]);
 
-  let { rows: [book] } = await pool.query(`SELECT * FROM books WHERE slug='20-objections-that-cost-you-sales'`);
-  if (!book) {
-    ({ rows: [book] } = await pool.query(
-      `INSERT INTO books (slug, title, subtitle, author, description, price_amount, currency, published, max_devices)
-       VALUES ('20-objections-that-cost-you-sales','20 Objections That Cost You Sales','How to Handle Customer Objections and Close More Deals',
-               'Kenedy Njume', $1, 15000, 'TZS', false, 1) RETURNING *`,
-      ['Every lost sale starts with an objection that was not handled well. This practical guide walks through the twenty objections salespeople hear most and gives you clear, tested ways to respond.']));
-    // The cover goes in first: it becomes the full-page front cover of the book.
-    const cover = await fs.readFile(path.join(here, '..', 'public', 'assets', 'cover.png'));
-    const key = `covers/${book.id}/seed`;
-    await ctx.storage.put(key, cover, 'image/png');
-    await pool.query('UPDATE books SET cover_storage_key=$2, cover_mime=$3 WHERE id=$1', [book.id, key, 'image/png']);
-  }
+  const book = await ensureBook(ctx);
   // The real book kept in content/ becomes the current edition (once; see bundledBook.js).
   const bundled = await loadBundledBook(ctx);
   if (bundled) console.log(`Loaded the book from content/ (${bundled.page_count} pages).`);
@@ -71,10 +60,7 @@ try {
     await pool.query('UPDATE books SET current_edition_id=$2, published=true WHERE id=$1', [book.id, edition.id]);
     console.log('No book file found in content/: loaded a generated sample.');
   }
-  await pool.query(`UPDATE website_settings SET value=$1 WHERE key='site'`, [{ featuredBookId: book.id }]);
-  const { rows: [wa] } = await pool.query(`SELECT value FROM website_settings WHERE key='whatsapp'`);
-  await pool.query(`UPDATE website_settings SET value=$1 WHERE key='whatsapp'`,
-    [{ ...wa.value, contactName: 'Kenedy Njume', number: process.env.SEED_WHATSAPP || '+255746274010', orderMessage: 'Hello, I would like to order {book_title}.' }]);
+  await setOwnerContact(pool, book.id, process.env.SEED_WHATSAPP);
 
   // --book <file>: use your own EPUB or PDF as the sample book's current edition.
   const bi = process.argv.indexOf('--book');
