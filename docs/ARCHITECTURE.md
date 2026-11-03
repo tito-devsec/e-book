@@ -99,10 +99,8 @@ sessions (`device_replacements.mode = OWNER_LINK`).
 5. `GET /api/reader/books/:id/content/:resourceId` checks session → device → signature → nonce →
    rate limit → license (customer + book + device authorization + paid order + not expired) and
    returns one decrypted chapter or page with `Cache-Control: no-store` and a sandbox CSP.
-   PDF pages are watermarked **per request** (`src/services/watermark.js`): a diagonal pattern and
-   a footer with the buyer's name, masked number, date and a trace code (HMAC of the license id),
-   burned into the pixels and re-encoded as WebP. Two buyers never receive the same bytes, and the
-   owner can look up the buyer from the trace code. Page text is never served, only searched.
+   PDF pages are re-encoded as WebP per request (`src/services/watermark.js`) and sent clean: no
+   watermark is applied, by the owner's choice. Page text is never served, only searched.
    The reader decodes pages into `ImageBitmap`s drawn on `<canvas>` (no image URL to save).
 6. The reader keeps at most a few chapters in memory, never in Cache Storage, localStorage or
    IndexedDB.
@@ -131,7 +129,7 @@ the database, so revocation takes effect on the next request.
 | Session cookie theft | HttpOnly cookie is useless without the device private key (non-extractable) | Malware on the device itself |
 | Replay of captured requests | Timestamp window + unique nonce per device | none within design |
 | Account sharing (giving someone your phone) | One device per license, replacement limits, alerts on multiple sessions and new devices, owner can revoke | A buyer can always show their own screen to someone |
-| Bulk scraping by a legitimate buyer | Per-session rate limit with alert; one chapter per request; watermark with buyer's name and masked number | A determined buyer can copy text they can see (see SECURITY_LIMITATIONS.md) |
+| Bulk scraping by a legitimate buyer | Per-session rate limit with alert; one chapter per request | A determined buyer can copy text they can see (see SECURITY_LIMITATIONS.md) |
 | Malicious upload (XSS, zip bomb, malware) | Admin-only; magic bytes; entry count/size limits; path traversal check; sanitization; ClamAV; sandbox CSP on content | Zero-day in parser libraries |
 | SQL injection | Parameterized queries only | none known |
 | XSS | Strict CSP without inline scripts; `textContent` everywhere; sanitized chapters | none known |

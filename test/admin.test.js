@@ -159,7 +159,7 @@ test('original source file is encrypted at rest and never reachable by URL', asy
   assert.ok(img.data.equals(PNG_1PX));
 });
 
-test('PDF editions: rendered server-side, never sent as PDF, watermarked per buyer, searchable', async () => {
+test('PDF editions: rendered server-side, never sent as PDF, no watermark, searchable', async () => {
   const created = await owner.post('/api/admin/books', { title: 'PDF Book', author: 'A', priceAmount: '10', currency: 'TZS', preferredFormat: 'PDF' });
   const id = created.data.book.id;
   const fd = new FormData(); fd.append('file', new Blob([makePdf(3)]), 'b.pdf');
@@ -189,21 +189,13 @@ test('PDF editions: rendered server-side, never sent as PDF, watermarked per buy
   assert.equal(pageA.headers.get('content-type'), 'image/webp');
   assert.equal(pageA.data.subarray(8, 12).toString(), 'WEBP');
   assert.ok(!pageA.data.includes(Buffer.from('%PDF')));
-  assert.ok(!pageA.data.equals(pageB.data), 'each buyer gets a differently watermarked page');
-  const { rows: [clean] } = await env.ctx.pool.query(`SELECT * FROM book_assets WHERE id=$1`, [m.data.items[1].id]);
-  assert.ok(!pageA.data.equals(await env.ctx.ingest.readAsset(e, clean)), 'delivered page is not the stored clean page');
+  assert.ok(pageA.data.equals(pageB.data), 'pages carry no per-buyer watermark: every buyer gets the same image');
   // Page text is used only for search and is never served whole.
   const { rows: [txt] } = await env.ctx.pool.query(`SELECT id FROM book_assets WHERE edition_id=$1 AND kind='PAGE_TEXT' LIMIT 1`, [e.id]);
   assert.equal((await readers[0].get(`/api/reader/books/${id}/content/${txt.id}`, { sign: true })).status, 404);
   const search = await readers[0].get(`/api/reader/books/${id}/search?q=Page%202`, { sign: true });
   assert.equal(search.data.supported, true);
   assert.equal(search.data.results[0].index, 1);
-  // The admin can trace a page back to its buyer by the watermark reference.
-  const { traceCode } = await import('../src/services/watermark.js');
-  const lic = (await env.ctx.pool.query(`SELECT l.id FROM reading_licenses l JOIN customers c ON c.id=l.customer_id WHERE c.full_name='Alice Reader'`)).rows[0];
-  const traced = await owner.get(`/api/admin/licenses?ref=${traceCode(process.env.HASH_PEPPER, lic.id)}`);
-  assert.equal(traced.data.licenses.length, 1);
-  assert.equal(traced.data.licenses[0].full_name, 'Alice Reader');
 });
 
 test('password-protected or broken PDFs are rejected', async () => {

@@ -24,7 +24,6 @@ more than is true.
 | Encrypted original | The PDF is encrypted (AES-256-GCM, per-edition key wrapped by KMS) the moment it is uploaded and is never written to disk in clear | Theft of the server's files or bucket |
 | Server-side rendering | pdf.js turns each page into an image on the server; no PDF bytes ever reach a browser | "Save as PDF", PDF downloaders, extracting the file from the app |
 | One page per request | Each page is requested separately with a signed, session-bound, rate-limited request | Bulk download scripts, replaying requests, shared links |
-| Burned-in watermark | Every page image is stamped, per request, with the buyer's name, masked number, date and a trace ref | Anonymous leaks: any screenshot, photo or printout identifies the buyer; the dashboard finds them by ref |
 | Canvas display | Pages are drawn on a `<canvas>` from in-memory bitmaps, never as an `<img>` or file URL | Right-click "save image", drag-and-drop, browser image cache |
 | No storage | Pages are never put in the service-worker cache, localStorage or IndexedDB | Copies left on the device after access is revoked |
 | Privacy shield | The page turns fully black when the reader loses focus or is hidden, and when a screenshot shortcut is pressed (Print Screen, Win+Shift+S, Cmd+Shift+3/4/5); print/save shortcuts are blocked; print stylesheet blanks the page | App-switcher thumbnails, desktop screenshot shortcuts and snipping tools, Ctrl+P / Ctrl+S |
@@ -32,14 +31,14 @@ more than is true.
 
 **Phone screenshots.** The screenshot buttons on iPhone and Android cannot be detected or blocked
 by any website or installed web app: the phone takes the picture without telling the page, so a
-black screenshot is not possible from a web app. The watermark on every page (buyer name, masked
-number, date, trace ref) is what protects the book there. Making phone screenshots black needs a
+black screenshot is not possible from a web app. Pages carry no watermark (the owner chose to
+leave it off), so a phone screenshot cannot be traced to a buyer. Making phone screenshots black needs a
 native wrapper app (Android `FLAG_SECURE`; on iPhone the most that can be done is to blank the
 screen while it is being recorded and to be told after a screenshot).
 
 What still cannot be prevented for PDFs: a phone camera pointed at the screen, the operating
 system's own screenshot on phones (Android/iOS do not let web pages block it), and screen recording
-software that does not take focus. The watermark is what makes these leaks traceable.
+software that does not take focus. Without a watermark these leaks are not traceable.
 
 ## The "installed app only" rule
 
@@ -51,9 +50,8 @@ save) and to expire the download page, not as a cryptographic guarantee.
 
 ## What is not protected
 
-**Screenshots, screen recording and photos.** Any page shown on screen can be captured. The
-reader adds a faint watermark with the buyer's name and part of their number on every page, so a
-leaked capture can be traced. That is a deterrent, not a prevention.
+**Screenshots, screen recording and photos.** Any page shown on screen can be captured. Pages
+carry no watermark, so a leaked capture cannot be traced to the buyer who made it.
 
 **Copying by the legitimate buyer.** The browser receives each chapter as text in order to
 display it. A technically capable buyer can use developer tools, a browser extension or a script

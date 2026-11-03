@@ -43,10 +43,8 @@ their access and see the new edition. You can switch back to an older edition un
 ## How PDF books are protected
 
 - The uploaded PDF is encrypted and never sent to any browser, not even the buyer's.
-- Each page is shown as an image stamped with the buyer's name, part of their number and a
-  **watermark ref** (for example `FAAB80E5`).
-- If you find a leaked photo or screenshot of a page, open **Reading Licenses** and enter the
-  ref printed on it: the buyer it belongs to is shown. You can then suspend or revoke them.
+- Each page is shown as an image, with no watermark. A leaked photo or screenshot of a page
+  therefore cannot be traced to a buyer; if that matters, use the reading activity records.
 
 ## Selling: from order to reader
 

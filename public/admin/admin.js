@@ -465,7 +465,6 @@ function licensesTable(rows) {
   return table([
     { label: 'Customer', render: (l) => (l.full_name ? link(`/admin/customers/${l.customer_id}`, l.full_name) : '—') },
     { label: 'Book', key: 'book_title' },
-    { label: 'Watermark ref', render: (l) => h('span', { class: 'mono', text: l.trace_code || '—', title: 'Printed on every page this buyer views' }) },
     { label: 'Order', render: (l) => (l.order_reference ? link(`/admin/orders/${l.order_id}`, l.order_reference) : link(`/admin/orders/${l.order_id}`, 'Open order')) },
     { label: 'Status', render: (l) => h('div', {}, badge(l.status), l.status_reason ? h('div', { class: 'sub', text: l.status_reason }) : null) },
     { label: 'Devices', render: (l) => `${l.active_devices ?? '—'} / ${l.max_devices}` },

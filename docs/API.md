@@ -56,8 +56,8 @@ Every request needs the session cookie and these headers:
 | `GET /reader/library` | Books this device may read, with progress |
 | `GET /reader/books/:bookId` | Book details, access and preparation status |
 | `GET /reader/books/:bookId/cover` | Cover image |
-| `GET /reader/books/:bookId/manifest` | `{format, edition, toc[], items[{id,index,title}], watermark}` |
-| `GET /reader/books/:bookId/content/:resourceId` | One sanitized chapter (`text/html`), an EPUB image, or a PDF page as `image/webp` watermarked for this buyer |
+| `GET /reader/books/:bookId/manifest` | `{format, edition, toc[], items[{id,index,title}]}` |
+| `GET /reader/books/:bookId/content/:resourceId` | One sanitized chapter (`text/html`), an EPUB image, or a PDF page as `image/webp` (no watermark) |
 | `GET /reader/books/:bookId/search?q=` | `{results:[{index, chapter, snippet, offset}], supported}` (EPUB chapters and PDF page text) |
 | `GET /reader/progress/:bookId` | `{progress: {location, percent, updatedAt} \| null}` |
 | `POST /reader/progress` | `{bookId, location:{index, page}, percent}` |
@@ -102,7 +102,7 @@ Permission in brackets. All changes are written to the audit log.
 
 **Devices** — `GET /admin/devices?status=&customerId=` [customers.view]; `POST /admin/devices/:id/revoke` `{reason?}` [access.manage]; `GET /admin/device-replacements`; `POST /admin/device-replacements/:id/approve` `{transitionHours}`; `POST /admin/device-replacements/:id/reject` [access.manage]
 
-**Licenses** — `GET /admin/licenses?status=&customerId=&ref=` (`ref` = watermark reference printed on PDF pages; rows include `trace_code`) [customers.view]; `POST /admin/licenses/:id/suspend|reactivate|revoke`; `POST /admin/licenses/:id/renew` `{days|null}`; `PATCH /admin/licenses/:id` `{maxDevices}` [access.manage]
+**Licenses** — `GET /admin/licenses?status=&customerId=` [customers.view]; `POST /admin/licenses/:id/suspend|reactivate|revoke`; `POST /admin/licenses/:id/renew` `{days|null}`; `PATCH /admin/licenses/:id` `{maxDevices}` [access.manage]
 
 **Monitoring** — `GET /admin/reading-events?type=&customerId=`, `GET /admin/security-events?open=true&severity=` [security.view]; `POST /admin/security-events/:id/resolve` `{resolution}` [security.manage]; `GET /admin/audit-logs?action=&entityType=` [audit.view]
 

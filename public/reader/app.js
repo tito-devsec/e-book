@@ -770,7 +770,7 @@ class Reader {
 
   // --- Book layout and realistic 3D page turning (StPageFlip) ------------------
   // Phones and narrow windows show one page; wide screens show an open two-page spread.
-  // PDF: every page is a slot, filled with its watermarked image only when near the reader.
+  // PDF: every page is a slot, filled with its image only when near the reader.
   // EPUB: chapters are laid out into pages; a small window of chapters is loaded at a time.
 
   /** Page size for the current screen. */
@@ -1124,12 +1124,9 @@ class Reader {
 
   // --- Mount -------------------------------------------------------------------
   async start() {
-    const wm = h('div', { class: 'watermark', 'aria-hidden': 'true' });
-    // PDF pages already carry the author's watermark in their pixels; EPUB text gets an overlay.
-    if (!this.isPdf && this.manifest.watermark) for (let i = 0; i < 24; i += 1) wm.append(h('span', { text: this.manifest.watermark }));
     this.bookEl = h('div', { class: 'book' });
     this.measure = h('div', { class: 'measure', 'aria-hidden': 'true' });
-    const stage = h('div', { class: 'stage' }, this.bookEl, wm, this.measure,
+    const stage = h('div', { class: 'stage' }, this.bookEl, this.measure,
       h('button', { class: 'navbtn prev', 'aria-label': 'Previous page', onclick: () => this.turn(-1) }, fi('arrow-left')),
       h('button', { class: 'navbtn next', 'aria-label': 'Next page', onclick: () => this.turn(1) }, fi('arrow-right')));
     this.stage = stage;

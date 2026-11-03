@@ -2,18 +2,12 @@
 // active license for the requested book on this device. Responses are never cacheable.
 import express from 'express';
 import { validate, notFound, uuidParam, HttpError } from '../lib/http.js';
-import { watermarkPage, traceCode, maskedPhone, formatPhone } from '../services/watermark.js';
+import { toWebp } from '../services/watermark.js';
 
 export function readerRoutes({ pool, access, ingest, events, readerAuth, storage, cfg, settings }) {
   const r = express.Router();
   r.use((req, res, next) => { res.set('Cache-Control', 'no-store, private'); res.set('Pragma', 'no-cache'); next(); });
   r.use(readerAuth.sessionOnly(), readerAuth.signed());
-
-  // Text of the tiled watermark: the author's name and number only, never the buyer's details.
-  async function ownerMark() {
-    const wa = (await settings.website()).whatsapp || {};
-    return [wa.contactName, wa.number ? formatPhone(wa.number) : ''].filter(Boolean).join(' · ');
-  }
 
   async function currentEdition(bookId) {
     const { rows: [e] } = await pool.query(
@@ -87,7 +81,6 @@ export function readerRoutes({ pool, access, ingest, events, readerAuth, storage
       edition: e.version,
       toc: e.toc,
       items: rows.map((a) => ({ id: a.id, index: a.ordinal, title: a.title })),
-      watermark: await ownerMark(),
     });
   });
 
@@ -104,13 +97,8 @@ export function readerRoutes({ pool, access, ingest, events, readerAuth, storage
     let body = await ingest.readAsset(e, asset);
     let mime = asset.mime === 'text/html' ? 'text/html; charset=utf-8' : asset.mime;
     if (asset.kind === 'PAGE_IMAGE') {
-      // Burn the buyer's identity into the page pixels for this request.
-      const wa = (await settings.website()).whatsapp || {};
-      body = await watermarkPage(body, {
-        name: req.reader.full_name, phone: maskedPhone(req.reader.phone_e164), code: traceCode(cfg.hashPepper, lic.id),
-        owner: wa.contactName ? { name: wa.contactName, phone: formatPhone(wa.number) } : null,
-        dark: asset.title === 'Front cover',
-      });
+      // Pages are delivered as WebP images (never as PDF bytes). No watermark is applied.
+      body = await toWebp(body);
       mime = 'image/webp';
     }
     if (asset.kind !== 'IMAGE') {

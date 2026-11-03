@@ -20,7 +20,7 @@ Only the latest release on `main` receives security fixes.
 | Customer access | Private link (256-bit, hashed, expiring, revocable) is the proof of purchase; it is used up the first time the added app opens; one-time claim token; device key bound to the session |
 | Links | 256-bit random tokens, stored as keyed hashes, single use, expiring, revocable, a new link invalidates the old one and moves the book to the new device |
 | Devices | Non-extractable ECDSA P-256 key per browser; every reader request signed (method, URL, timestamp, nonce, body hash); replay protection |
-| Content | Originals encrypted at rest (AES-256-GCM, per-edition data key wrapped by KMS); PDFs rendered to images server-side and never sent as PDF; each PDF page watermarked per buyer with a traceable ref; served one sanitized chapter or page at a time after session, device and license checks; `no-store` |
+| Content | Originals encrypted at rest (AES-256-GCM, per-edition data key wrapped by KMS); PDFs rendered to images server-side and never sent as PDF (pages are not watermarked, by the owner's choice); served one sanitized chapter or page at a time after session, device and license checks; `no-store` |
 | Web | Strict CSP (no inline script), `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, `nosniff`, SameSite=Strict HttpOnly cookies, CSRF tokens, origin checks, JSON-only state changes |
 | Input | Schema validation, parameterized SQL, HTML sanitization of book content, magic-byte file validation, upload size limits, optional ClamAV scanning, zip-bomb limits |
 | Abuse | Per-IP rate limits on link pages, per-session content rate limit with alerts |

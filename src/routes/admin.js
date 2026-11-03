@@ -9,7 +9,6 @@ import {
 } from '../lib/http.js';
 import { hashPassword } from '../lib/crypto.js';
 import { detectImageMime } from '../services/ingest.js';
-import { traceCode } from '../services/watermark.js';
 import { POLICY_SCHEMA, WEBSITE_KEYS } from '../services/settings.js';
 import { validatePasswordStrength } from './adminAuth.js';
 
@@ -277,7 +276,7 @@ export function adminRoutes(ctx) {
           WHERE e.customer_id=$1 ORDER BY e.created_at DESC LIMIT 100`),
       q(`SELECT id, event_type, severity, created_at, resolved_at FROM security_events WHERE customer_id=$1 ORDER BY created_at DESC LIMIT 50`),
     ]);
-    res.json({ customer, orders, licenses: licenses.map((l) => ({ ...l, trace_code: traceCode(cfg.hashPepper, l.id) })), invitations, devices, activity, security });
+    res.json({ customer, orders, licenses, invitations, devices, activity, security });
   });
 
   r.patch('/customers/:id', can('customers.manage'), async (req, res) => {
@@ -598,20 +597,13 @@ export function adminRoutes(ctx) {
     const vals = []; const where = [];
     if (['PENDING_ACTIVATION', 'ACTIVE', 'SUSPENDED', 'REVOKED', 'EXPIRED'].includes(req.query.status)) { vals.push(req.query.status); where.push(`l.status=$${vals.length}`); }
     if (req.query.customerId) { vals.push(uuidParam(req.query.customerId)); where.push(`l.customer_id=$${vals.length}`); }
-    // Find the license behind a watermark reference seen on a leaked page.
-    if (req.query.ref) {
-      const ref = String(req.query.ref).trim().toUpperCase();
-      const { rows: all } = await pool.query('SELECT id FROM reading_licenses');
-      const hit = all.find((l) => traceCode(cfg.hashPepper, l.id) === ref);
-      vals.push(hit ? hit.id : '00000000-0000-0000-0000-000000000000'); where.push(`l.id=$${vals.length}`);
-    }
     const w = where.length ? `WHERE ${where.join(' AND ')}` : '';
     const { rows } = await pool.query(
       `SELECT l.*, c.full_name, c.phone_e164, b.title AS book_title, o.reference AS order_reference,
               (SELECT count(*) FROM device_authorizations da JOIN registered_devices d ON d.id=da.device_id WHERE da.license_id=l.id AND da.status='ACTIVE' AND d.status='ACTIVE')::int AS active_devices
          FROM reading_licenses l JOIN customers c ON c.id=l.customer_id JOIN books b ON b.id=l.book_id JOIN orders o ON o.id=l.order_id
          ${w} ORDER BY l.created_at DESC LIMIT ${limit} OFFSET ${offset}`, vals);
-    res.json({ licenses: rows.map((l) => ({ ...l, trace_code: traceCode(cfg.hashPepper, l.id) })), page, limit });
+    res.json({ licenses: rows, page, limit });
   });
 
   async function licenseAction(req, id, fn) {
