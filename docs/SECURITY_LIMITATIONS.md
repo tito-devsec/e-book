@@ -25,7 +25,7 @@ more than is true.
 | Server-side rendering | pdf.js turns each page into an image on the server; no PDF bytes ever reach a browser | "Save as PDF", PDF downloaders, extracting the file from the app |
 | One page per request | Each page is requested separately with a signed, session-bound, rate-limited request | Bulk download scripts, replaying requests, shared links |
 | Canvas display | Pages are drawn on a `<canvas>` from in-memory bitmaps, never as an `<img>` or file URL | Right-click "save image", drag-and-drop, browser image cache |
-| No storage | Pages are never put in the service-worker cache, localStorage or IndexedDB | Copies left on the device after access is revoked |
+| On-device copy | Pages that were read are kept in the app's own storage so the book opens without internet; a revoke or suspension clears them on the next open | Nothing: this is a deliberate trade for reliability on weak connections |
 | Privacy shield | The page turns fully black when the reader loses focus or is hidden, and when a screenshot shortcut is pressed (Print Screen, Win+Shift+S, Cmd+Shift+3/4/5); print/save shortcuts are blocked; print stylesheet blanks the page | App-switcher thumbnails, desktop screenshot shortcuts and snipping tools, Ctrl+P / Ctrl+S |
 | Page text kept server-side | The text of PDF pages is used only for search and returns short snippets | Copying the whole text through the search feature |
 

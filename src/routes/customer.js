@@ -8,8 +8,10 @@ export function customerRoutes({ access, cfg, rateLimiter, readerAuth, pool, set
   const limitAccess = rateLimiter.middleware('access', 30, 10 * 60000);
   const limitVerify = rateLimiter.middleware('verify', 20, 10 * 60000);
 
+  // The app's sign-in cookie outlives any renewal window: the book stays on the phone for good.
+  const TEN_YEARS = 10 * 365 * 24 * 3600 * 1000;
   const setSession = (res, session) => {
-    res.cookie(access.SESSION_COOKIE, session.token, cookieOptions(cfg, new Date(session.expiresAt).getTime() - Date.now()));
+    res.cookie(access.SESSION_COOKIE, session.token, cookieOptions(cfg, TEN_YEARS));
   };
   const noStore = (req, res, next) => { res.set('Cache-Control', 'no-store'); next(); };
   r.use(noStore);

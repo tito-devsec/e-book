@@ -252,20 +252,15 @@ export function createAccess({ pool, cfg, settings, events }) {
       if (!device) device = await insertDevice(db, { customerId: inv.customer_id, key, userAgent });
       await db.query(`UPDATE registered_devices SET status='ACTIVE', installed_at=COALESCE(installed_at, now()) WHERE id=$1`, [device.id]);
 
-      // A link from the owner is their approval to put the book on this device: if all device
-      // slots are taken, the least recently used other device loses access.
+      // A book that is already on a phone stays there for good. A new link from the owner adds
+      // this device; it never takes the book away from an earlier one. Only an explicit revoke
+      // or suspension in the dashboard ends access.
       const { rows: others } = await db.query(
         `SELECT da.device_id FROM device_authorizations da JOIN registered_devices d ON d.id=da.device_id
-          WHERE da.license_id=$1 AND da.status='ACTIVE' AND d.status='ACTIVE' AND d.id<>$2
-          ORDER BY d.last_seen_at NULLS FIRST, d.registered_at`, [lic.id, device.id]);
-      const surplus = others.length + 1 - lic.max_devices;
-      for (const o of others.slice(0, Math.max(0, surplus))) {
-        await db.query(`UPDATE device_authorizations SET status='REVOKED', revoked_at=now() WHERE device_id=$1 AND license_id=$2`, [o.device_id, lic.id]);
-        const { rows: [{ n }] } = await db.query(`SELECT count(*)::int AS n FROM device_authorizations WHERE device_id=$1 AND status='ACTIVE'`, [o.device_id]);
-        if (n === 0) await db.query(`UPDATE registered_devices SET status='REPLACED', revoked_at=now(), revoked_reason='Replaced by a new link from the owner' WHERE id=$1`, [o.device_id]);
-        await endDeviceSessions(db, o.device_id, 'DEVICE_REPLACED');
+          WHERE da.license_id=$1 AND da.status='ACTIVE' AND d.status='ACTIVE' AND d.id<>$2`, [lic.id, device.id]);
+      if (others.length) {
         await db.query(`INSERT INTO device_replacements (customer_id, old_device_id, new_device_id, mode, decided_at) VALUES ($1,$2,$3,'OWNER_LINK', now())`,
-          [inv.customer_id, o.device_id, device.id]);
+          [inv.customer_id, others[0].device_id, device.id]);
       }
       await authorize(db, device.id, lic.id);
       await db.query(`UPDATE customers SET status='ACTIVATED', updated_at=now() WHERE id=$1 AND status IN ('PAID','INVITED','EXPIRED')`, [inv.customer_id]);
@@ -296,20 +291,16 @@ export function createAccess({ pool, cfg, settings, events }) {
       const map = { DEVICE_REVOKED: 'DEVICE_REVOKED', DEVICE_REPLACED: 'DEVICE_REVOKED', ACCOUNT_SUSPENDED: 'ACCOUNT_SUSPENDED', ACCESS_REVOKED: 'ACCOUNT_SUSPENDED' };
       return { error: map[s.end_reason] || 'SESSION_ENDED', session: s };
     }
+    // A session on an installed app does not time out: a book that is on a phone stays readable
+    // for good. The session ends only when the owner revokes the device or suspends the customer.
     const policy = await settings.policy();
-    const idleMs = policy.session_idle_minutes * 60000;
-    if (new Date(s.expires_at) <= new Date() || Date.now() - new Date(s.last_seen_at).getTime() > idleMs) {
-      await pool.query(`UPDATE reading_sessions SET ended_at=now(), end_reason='EXPIRED' WHERE id=$1 AND ended_at IS NULL`, [s.id]);
-      await events.reading(null, { type: 'SESSION_EXPIRED', customerId: s.customer_id, deviceId: s.device_id });
-      return { error: 'SESSION_EXPIRED', session: s };
-    }
     const deviceOk = s.device_status === 'ACTIVE' || (s.transition_until && new Date(s.transition_until) > new Date());
     if (!deviceOk) return { error: 'DEVICE_REVOKED', session: s };
     if (['SUSPENDED', 'REVOKED'].includes(s.customer_status)) {
       await events.security(null, { type: 'SUSPENDED_ACCESS_ATTEMPT', severity: 'MEDIUM', customerId: s.customer_id, deviceId: s.device_id });
       return { error: 'ACCOUNT_SUSPENDED', session: s };
     }
-    // Sessions renew themselves while in use, so the app keeps working every day.
+    // Keep the stored expiry far ahead so nothing else ever treats the session as stale.
     if (new Date(s.expires_at).getTime() - Date.now() < (policy.session_ttl_hours * 3600000) / 2) {
       await pool.query(`UPDATE reading_sessions SET expires_at = now() + make_interval(hours => $2) WHERE id=$1`, [s.id, policy.session_ttl_hours]);
     }

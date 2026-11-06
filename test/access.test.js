@@ -250,19 +250,18 @@ test('replayed signed request is rejected', async () => {
   assert.equal((await b.get('/api/reader/library', { headers: h })).status, 401);
 });
 
-test('expired session: the customer gets back in with a new link from the owner (Scenario D)', async () => {
+test('a book on a phone never times out: old sessions and long idle gaps still read (Scenario D)', async () => {
   const o = await createOrder(admin, bookId);
   const b = new Browser(env.base);
   await activate(env, b, (await invite(admin, o.licenseId)).token);
-  await env.ctx.pool.query(`UPDATE reading_sessions SET expires_at = now() - interval '1 second' WHERE customer_id=$1`, [o.customerId]);
+  await env.ctx.pool.query(`UPDATE reading_sessions SET expires_at = now() - interval '400 days', last_seen_at = now() - interval '400 days' WHERE customer_id=$1`, [o.customerId]);
   const r = await b.get('/api/reader/library', { sign: true });
-  assert.equal(r.status, 401);
-  assert.equal(r.data.code, 'SESSION_EXPIRED');
-  // No new purchase: the owner sends a new link for the same license.
-  const again = await admin.post('/api/admin/invitations', { licenseId: o.licenseId });
-  assert.equal(again.status, 201);
-  await activate(env, b, again.data.link.split('/access/')[1]);
+  assert.equal(r.status, 200, JSON.stringify(r.data));
   assert.equal((await b.get(`/api/reader/books/${bookId}/manifest`, { sign: true })).status, 200);
+  // Only the owner ends access: revoking the device.
+  const { rows: [d] } = await env.ctx.pool.query('SELECT id FROM registered_devices WHERE customer_id=$1', [o.customerId]);
+  assert.equal((await admin.post(`/api/admin/devices/${d.id}/revoke`, { reason: 'test' })).status, 200);
+  assert.equal((await b.get('/api/reader/library', { sign: true })).status, 403);
 });
 
 test('logout ends the session and asks the browser to clear stored data', async () => {

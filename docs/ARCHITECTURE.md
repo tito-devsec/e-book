@@ -80,8 +80,8 @@ hardware-backed key (Android Keystore / Secure Enclave). See SECURITY_LIMITATION
 
 `device_authorizations` links devices to licenses. `max_devices` (default 1) caps active
 authorizations per license. Moving to a new phone is done by the owner: a new link for the same
-license, claimed on the new phone, revokes the least recently used older device and ends its
-sessions (`device_replacements.mode = OWNER_LINK`).
+license, claimed on the new phone, adds that phone. A book that is already on a phone is never taken
+away by a later link: only an explicit revoke or suspension in the dashboard ends access.
 
 ### Protected content pipeline
 
@@ -102,7 +102,8 @@ sessions (`device_replacements.mode = OWNER_LINK`).
    PDF pages are re-encoded as WebP per request (`src/services/watermark.js`) and sent clean: no
    watermark is applied, by the owner's choice. Page text is never served, only searched.
    The reader decodes pages into `ImageBitmap`s drawn on `<canvas>` (no image URL to save).
-6. The reader keeps at most a few chapters in memory, never in Cache Storage, localStorage or
+6. Pages that have been read are kept on the device (IndexedDB) so the book opens on weak or no
+   internet; a revoke clears them. The reader keeps a few pages in memory, never in Cache Storage or
    IndexedDB.
 
 Editions belong to the book, licenses to the book, so replacing an edition never changes who can
@@ -111,7 +112,7 @@ read.
 ### Sessions
 
 Opaque 256-bit tokens in `HttpOnly; Secure; SameSite=Strict` cookies, stored hashed. Customer
-sessions: absolute TTL (`session_ttl_hours`) and idle timeout, one per device (rotated on sign-in).
+sessions: one per device, never timed out (a book on a phone stays readable for good); ended only by revoke or suspension.
 Admin sessions: 12 h absolute, 60 min idle, rotated after MFA, revoked on password change, role
 change or disable. Every request re-checks device status, customer status and license status in
 the database, so revocation takes effect on the next request.

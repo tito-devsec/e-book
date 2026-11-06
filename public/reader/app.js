@@ -2,8 +2,9 @@
 // - Device identity: a non-extractable ECDSA P-256 key generated in this browser (WebCrypto),
 //   stored in IndexedDB. Every reader API request is signed with it. This is an additional
 //   authorization signal, not a hardware-backed identity.
-// - Book content is fetched one chapter/page at a time, kept in memory only, and never
-//   written to the service worker cache, localStorage or IndexedDB.
+// - Book content is fetched one chapter/page at a time. Pages that have been read are kept on
+//   the device (IndexedDB) so the book opens and reads on weak or no internet. A book that has
+//   been added to a phone stays readable there for good.
 
 // ===========================================================================
 // DOM helpers (text is always set via textContent; no untrusted innerHTML)
@@ -48,33 +49,51 @@ function cleanupView() { for (const fn of viewCleanup.splice(0)) { try { fn(); }
 const DB_NAME = 'private-reader';
 function idb() {
   return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, 1);
-    req.onupgradeneeded = () => req.result.createObjectStore('keys');
+    const req = indexedDB.open(DB_NAME, 2);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains('keys')) db.createObjectStore('keys');
+      if (!db.objectStoreNames.contains('book')) db.createObjectStore('book');
+    };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
   });
 }
-async function idbGet(key) {
+async function idbGet(key, store = 'keys') {
   const db = await idb();
   return new Promise((resolve, reject) => {
-    const r = db.transaction('keys').objectStore('keys').get(key);
+    const r = db.transaction(store).objectStore(store).get(key);
     r.onsuccess = () => resolve(r.result); r.onerror = () => reject(r.error);
   });
 }
-async function idbPut(key, value) {
+async function idbPut(key, value, store = 'keys') {
   const db = await idb();
   return new Promise((resolve, reject) => {
-    const t = db.transaction('keys', 'readwrite'); t.objectStore('keys').put(value, key);
+    const t = db.transaction(store, 'readwrite'); t.objectStore(store).put(value, key);
     t.oncomplete = () => resolve(); t.onerror = () => reject(t.error);
   });
 }
-async function idbDelete(key) {
+async function idbDelete(key, store = 'keys') {
   const db = await idb();
   return new Promise((resolve) => {
-    const t = db.transaction('keys', 'readwrite'); t.objectStore('keys').delete(key);
+    const t = db.transaction(store, 'readwrite'); t.objectStore(store).delete(key);
     t.oncomplete = () => resolve(); t.onerror = () => resolve();
   });
 }
+async function idbClearStore(store) {
+  const db = await idb();
+  return new Promise((resolve) => {
+    const t = db.transaction(store, 'readwrite'); t.objectStore(store).clear();
+    t.oncomplete = () => resolve(); t.onerror = () => resolve();
+  });
+}
+
+// On-device copy of the book so it opens on weak or no internet. Filled as pages are read.
+const shelf = {
+  async get(k) { try { return await idbGet(k, 'book'); } catch { return undefined; } },
+  async put(k, v) { try { await idbPut(k, v, 'book'); } catch { /* storage full or blocked */ } },
+  async clear() { try { await idbClearStore('book'); } catch { /* ignore */ } },
+};
 
 let deviceKey = null;
 async function getDeviceKey(create = false) {
@@ -153,6 +172,7 @@ async function clearSensitiveState({ forgetKey }) {
   csrf = null;
   try { sessionStorage.clear(); } catch { /* ignore */ }
   if (forgetKey) await forgetDevice();
+  if (forgetKey) await shelf.clear();
   if (navigator.serviceWorker?.controller) navigator.serviceWorker.controller.postMessage('clear-caches');
 }
 
@@ -452,6 +472,10 @@ async function viewLauncher({ recover = false } = {}) {
   const fromStart = new URLSearchParams(location.search).get('claim');
   const standalone = isStandalone();
   mount(h('div', { class: 'boot' }, h('div', { class: 'spinner', 'aria-label': 'Opening your book' })));
+  if (standalone && !navigator.onLine) {
+    const last = prefs.get('lastBook', '');
+    if (last && await shelf.get(`meta:${last}`)) return go(`/read/${last}`, true);
+  }
   if (!standalone && CLAIM_RE.test(fromStart || '')) {
     // A normal browser tab at the app's start address (reload, a shared preview, or a home-screen
     // shortcut that opens in the browser). While the link is unused, show the download page so the
@@ -468,7 +492,12 @@ async function viewLauncher({ recover = false } = {}) {
   if (location.pathname !== '/app' || location.search) history.replaceState({}, '', '/app');
   if (standalone && CLAIM_RE.test(fromStart || '')) claims.set('app', fromStart);
   let s;
-  try { s = await loadSession(); } catch (err) { return viewOffline(err); }
+  try { s = await loadSession(); } catch (err) {
+    // Server unreachable (weak internet): the installed app opens the saved copy.
+    const last = standalone ? prefs.get('lastBook', '') : '';
+    if (last && await shelf.get(`meta:${last}`)) return go(`/read/${last}`, true);
+    return viewOffline(err);
+  }
   if (!s.authenticated && ['DEVICE_REVOKED', 'ACCOUNT_SUSPENDED'].includes(s.code)) return handleAuthError(new ApiError(403, { code: s.code }));
 
   // Codes to use: a new link opened on this phone, and when signed out, the app's own code
@@ -659,8 +688,19 @@ async function viewReader(bookId) {
       api('GET', `/api/reader/books/${bookId}/manifest`, undefined, { signed: true }),
       api('GET', `/api/reader/progress/${bookId}`, undefined, { signed: true }),
     ]);
+    shelf.put(`meta:${bookId}`, { book: book.book, manifest, hasLibrary: s.books.length > 1 });
   } catch (err) {
     if (err.code === 'NOT_READY') return mount(screen(h('h1', { text: 'Preparing your book' }), h('p', { class: 'muted', text: err.message }), h('button', { class: 'btn btn-primary btn-block', onclick: () => route() }, 'Check again')));
+    if (err.status === 0 && isStandalone()) {
+      // No internet: open the copy already on this phone.
+      const saved = await shelf.get(`meta:${bookId}`);
+      if (saved) {
+        let pos = null; try { pos = JSON.parse(prefs.get(`pos:${bookId}`, 'null')); } catch { pos = null; }
+        new Reader(bookId, saved.book, saved.manifest, pos, saved.hasLibrary).start();
+        toast('No internet: reading the copy saved on this device.');
+        return;
+      }
+    }
     if (await handleAuthError(err)) return; return viewOffline(err);
   }
   new Reader(bookId, book.book, manifest, progress.progress, s.books.length > 1).start();
@@ -745,8 +785,16 @@ class Reader {
       // Pages are decoded straight into memory bitmaps and drawn on a canvas: no image URL or
       // file exists to save, and only a few neighbouring pages are kept.
       if (!this.pages_.has(id)) {
-        const res = await api('GET', url, undefined, { signed: true, raw: true });
-        this.pages_.set(id, await createImageBitmap(await res.blob()));
+        let blob;
+        try {
+          const res = await api('GET', url, undefined, { signed: true, raw: true });
+          blob = await res.blob();
+          shelf.put(`page:${id}`, blob);
+        } catch (err) {
+          blob = await shelf.get(`page:${id}`);
+          if (!blob) throw err;
+        }
+        this.pages_.set(id, await createImageBitmap(blob));
         for (const [k, bmp] of this.pages_) {
           if (this.pages_.size <= 10) break;
           if (k !== id) { bmp.close(); this.pages_.delete(k); }
@@ -755,8 +803,16 @@ class Reader {
       return this.pages_.get(id);
     }
     if (!this.html.has(i)) {
-      const res = await api('GET', url, undefined, { signed: true, raw: true });
-      this.html.set(i, await res.text());
+      let text;
+      try {
+        const res = await api('GET', url, undefined, { signed: true, raw: true });
+        text = await res.text();
+        shelf.put(`page:${id}`, text);
+      } catch (err) {
+        text = await shelf.get(`page:${id}`);
+        if (text === undefined) throw err;
+      }
+      this.html.set(i, text);
       // Keep only nearby chapters in memory.
       for (const k of this.html.keys()) if (Math.abs(k - i) > 2) this.html.delete(k);
     }
@@ -770,8 +826,16 @@ class Reader {
       const id = img.getAttribute('data-asset');
       if (!this.assets.has(id)) {
         try {
-          const res = await api('GET', `/api/reader/books/${this.bookId}/content/${id}`, undefined, { signed: true, raw: true });
-          this.assets.set(id, URL.createObjectURL(await res.blob()));
+          let blob;
+          try {
+            const res = await api('GET', `/api/reader/books/${this.bookId}/content/${id}`, undefined, { signed: true, raw: true });
+            blob = await res.blob();
+            shelf.put(`page:${id}`, blob);
+          } catch (err) {
+            blob = await shelf.get(`page:${id}`);
+            if (!blob) throw err;
+          }
+          this.assets.set(id, URL.createObjectURL(blob));
         } catch { continue; }
       }
       img.src = this.assets.get(id);
@@ -991,9 +1055,11 @@ class Reader {
 
   saveProgress() {
     clearTimeout(this.saveTimer);
+    prefs.set(`pos:${this.bookId}`, JSON.stringify({ location: { index: this.loc.index, page: this.loc.page } }));
+    prefs.set('lastBook', this.bookId);
     this.saveTimer = setTimeout(() => {
       api('POST', '/api/reader/progress', { bookId: this.bookId, location: { index: this.loc.index, page: this.loc.page }, percent: this.percent() }, { signed: true })
-        .catch((err) => handleAuthError(err));
+        .catch((err) => { if (err.status !== 0) handleAuthError(err); });
     }, 1200);
   }
 
@@ -1225,7 +1291,7 @@ class Reader {
     };
     addEventListener('resize', onResize);
     // Revalidate access whenever the app returns to the foreground.
-    const onVisible = () => { if (document.visibilityState === 'visible') api('POST', '/api/access/validate-license', { bookId: this.bookId }).catch((err) => handleAuthError(err)); };
+    const onVisible = () => { if (document.visibilityState === 'visible') api('POST', '/api/access/validate-license', { bookId: this.bookId }).catch((err) => { if (err.status !== 0) handleAuthError(err); }); };
     document.addEventListener('visibilitychange', onVisible);
     onCleanup(() => { removeEventListener('keydown', onKey); removeEventListener('resize', onResize); document.removeEventListener('visibilitychange', onVisible); });
 

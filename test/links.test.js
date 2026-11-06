@@ -33,7 +33,7 @@ test('iPhone: the home-screen app starts with the claim token and uses up the li
   assert.equal((await safari.get('/api/auth/session')).status, 401, 'Safari never had access');
 });
 
-test('owner issues a new link for a new phone: it moves the book and the old phone loses access', async () => {
+test('owner issues a new link for a new phone: the new phone gets the book and the old phone keeps it', async () => {
   const o = await createOrder(admin, bookId);
   const oldPhone = new Browser(env.base);
   await activate(env, oldPhone, (await invite(admin, o.licenseId)).token);
@@ -42,11 +42,13 @@ test('owner issues a new link for a new phone: it moves the book and the old pho
   const newPhone = new Browser(env.base);
   await activate(env, newPhone, newLink.data.link.split('/access/')[1]);
   assert.equal((await newPhone.get(`/api/reader/books/${bookId}/manifest`, { sign: true })).status, 200);
-  const old = await oldPhone.get('/api/reader/library', { sign: true });
-  assert.equal(old.status, 403);
-  assert.equal(old.data.code, 'DEVICE_REVOKED');
+  // A book that is already on a phone is never taken away by a later link.
+  assert.equal((await oldPhone.get('/api/reader/library', { sign: true })).status, 200);
+  assert.equal((await oldPhone.get(`/api/reader/books/${bookId}/manifest`, { sign: true })).status, 200);
   const { rows } = await env.ctx.pool.query(`SELECT mode FROM device_replacements WHERE customer_id=$1`, [o.customerId]);
-  assert.deepEqual(rows.map((x) => x.mode), ['OWNER_LINK']);
+  assert.deepEqual(rows.map((x) => x.mode), ['OWNER_LINK'], 'the move is recorded for the owner to see');
+  const { rows: devs } = await env.ctx.pool.query(`SELECT status FROM registered_devices WHERE customer_id=$1 ORDER BY registered_at`, [o.customerId]);
+  assert.deepEqual(devs.map((d) => d.status), ['ACTIVE', 'ACTIVE']);
 });
 
 test('sessions renew themselves with use so the app keeps working daily', async () => {
